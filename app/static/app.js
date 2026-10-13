@@ -184,33 +184,53 @@ function showOnboarding(onboarding) {
 
 /* ---------- 渲染 ---------- */
 
+// 心情条：-2..2 映射成 5 格。
+// 单独一个光条没人看得懂 —— 实测被当成加载进度。所以必须带标题。
 function moodBar(mood) {
-  const level = typeof mood === 'number' ? mood + 2 : -1;
+  const level = mood + 2;
   let html = '<div class="moodbar">';
   for (let i = 0; i < 5; i += 1) {
-    const on = level >= 0 && i <= level;
-    const deep = on && level >= 3;
-    html += `<i class="${on ? 'on' : ''} ${deep ? 'deep' : ''}"></i>`;
+    const on = i <= level;
+    html += `<i class="${on ? 'on' : ''} ${on && level >= 3 ? 'deep' : ''}"></i>`;
   }
   return html + '</div>';
 }
 
 function cardHtml(card, day) {
   if (!card) return '';
-  const label = card.mood_label ? card.mood_label : '今天还没说';
+
+  const hasSummary = typeof card.mood === 'number';
+  const hasContent = (card.entry_count || 0) > 0;
+
+  // 空的一天不需要卡片。以前这里会渲染出一张「0 段」的空卡，
+  // 而且对已经过去的那天写「今天还没说」。
+  if (!hasSummary && !hasContent) return '';
+
   const parts = [`${card.entry_count} 段`];
   if (card.image_count) parts.push(`${card.image_count} 张图`);
+
+  let body;
+  if (hasSummary) {
+    body = `
+      <div class="moodrow">
+        <span class="moodcaption">状态</span>
+        ${moodBar(card.mood)}
+      </div>`
+      + (card.mood_label ? `<div class="headline">「${escapeHtml(card.mood_label)}」</div>` : '')
+      + (card.headline ? `<div class="keywords">${escapeHtml(card.headline)}</div>` : '')
+      + ((card.keywords && card.keywords.length)
+        ? `<div class="keywords">${card.keywords.map((k) => `<span>${escapeHtml(k)}</span>`).join('')}</div>`
+        : '');
+  } else {
+    // 白天打开时总结还没跑。说清楚，不要把「没总结」说成「你没说话」。
+    body = '<div class="keywords">今天的总结要等晚上跑，这里会填上。</div>';
+  }
 
   return `
     <div class="card">
       <h2><span>${day === state.today ? '今天的你' : '那天的你'}</span>
           <span class="count">${parts.join(' · ')}</span></h2>
-      ${moodBar(card.mood)}
-      <div class="headline">「${escapeHtml(label)}」</div>
-      ${card.headline ? `<div class="keywords">${escapeHtml(card.headline)}</div>` : ''}
-      ${(card.keywords && card.keywords.length)
-        ? `<div class="keywords">${card.keywords.map((k) => `<span>${escapeHtml(k)}</span>`).join('')}</div>`
-        : ''}
+      ${body}
     </div>`;
 }
 
@@ -241,17 +261,17 @@ function renderStream(data, scrollToBottom) {
   for (const item of items) {
     if (item.kind === 'mine') {
       const e = item.entry;
+      // 注意：这里不能换行。.bubble 是 pre-wrap，模板里的换行会被真的渲染成空行，
+      // 看起来就是「时间上面空了一大块」。
       const inner = e.kind === 'image'
-        ? `<img src="/media/${encodeURI(e.image_path || '')}" alt="图片" loading="lazy">${
-            e.content ? escapeHtml(e.content) : ''}`
+        ? `<img class="zoomable" src="/media/${encodeURI(e.image_path || '')}" alt="图片" loading="lazy">`
+          + (e.content ? escapeHtml(e.content) : '')
         : escapeHtml(e.content);
-      html += `<div class="row mine"><div class="bubble">${inner}
-        <span class="stamp">${formatTime(e.ts)}</span></div></div>`;
+      html += `<div class="row mine"><div class="bubble">${inner}<span class="stamp">${formatTime(e.ts)}</span></div></div>`;
     } else {
       const s = item.said;
       const marker = s.trigger && s.trigger !== 'ask' && s.trigger !== 'onboarding';
-      html += `<div class="row theirs"><div class="bubble ${marker ? 'marker' : ''}">${
-        escapeHtml(s.content)}<span class="stamp">${formatTime(s.ts)}</span></div></div>`;
+      html += `<div class="row theirs"><div class="bubble ${marker ? 'marker' : ''}">${escapeHtml(s.content)}<span class="stamp">${formatTime(s.ts)}</span></div></div>`;
     }
   }
 
@@ -416,6 +436,19 @@ async function sendImage(file) {
   }
 }
 
+/* ---------- 图片放大 ---------- */
+
+function openLightbox(src) {
+  const box = $('lightbox');
+  $('lightbox-img').src = src;
+  box.hidden = false;
+}
+
+function closeLightbox() {
+  $('lightbox').hidden = true;
+  $('lightbox-img').src = '';
+}
+
 /* ---------- 输入框自适应 ---------- */
 
 function autosize(el) {
@@ -436,6 +469,17 @@ $('file').onchange = (e) => {
   if (file) sendImage(file);
 };
 $('input').addEventListener('input', (e) => autosize(e.target));
+
+// 点图片全屏看。用事件委托，因为流是 innerHTML 重建的。
+$('stream').addEventListener('click', (e) => {
+  const img = e.target.closest('img.zoomable');
+  if (img && img.src) openLightbox(img.src);
+});
+
+$('lightbox').onclick = closeLightbox;
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('lightbox').hidden) closeLightbox();
+});
 $('input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault();

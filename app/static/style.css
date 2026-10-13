@@ -87,7 +87,7 @@ body { display: flex; justify-content: center; }
 }
 .card h2 .count { font-weight: 400; color: var(--muted); font-size: 13px; }
 
-.moodbar { display: flex; gap: 4px; margin: 10px 0 8px; }
+.moodbar { display: flex; gap: 4px; flex: 1; }
 .moodbar i {
   flex: 1;
   height: 7px;
@@ -96,6 +96,19 @@ body { display: flex; justify-content: center; }
 }
 .moodbar i.on { background: #64748b; }
 .moodbar i.on.deep { background: #334155; }
+
+/* 状态条必须带标题。光秃秃一根条会被当成加载进度。 */
+.moodrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 8px;
+}
+.moodcaption {
+  font-size: 12px;
+  color: var(--muted);
+  flex: none;
+}
 
 .card .headline { font-size: 14px; color: #4a4642; }
 .card .keywords { margin-top: 8px; font-size: 12px; color: var(--muted); }
@@ -134,7 +147,8 @@ body { display: flex; justify-content: center; }
 .row.theirs .bubble.marker { border-color: #c7d2fe; background: #f5f7ff; }
 
 .bubble .stamp { display: block; font-size: 11px; opacity: .6; margin-top: 3px; }
-.bubble img { display: block; max-width: 100%; border-radius: 10px; margin: 2px 0 4px; }
+.bubble img { display: block; max-width: 100%; border-radius: 10px; margin: 2px 0 4px; cursor: zoom-in; }
+.bubble img:only-child { margin-bottom: 4px; }
 .bubble .retry {
   border: 0; background: none; color: inherit; opacity: .7;
   font-size: 12px; text-decoration: underline; cursor: pointer; padding: 4px 0 0;
@@ -251,6 +265,26 @@ body { display: flex; justify-content: center; }
 }
 .panel .progress { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 .panel .err { color: var(--danger); font-size: 13px; min-height: 18px; margin: 8px 0 0; }
+
+/* ---------- 图片全屏 ---------- */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .93);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  z-index: 90;
+  cursor: zoom-out;
+}
+.lightbox[hidden] { display: none; }
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+}
 
 /* ---------- toast ---------- */
 
