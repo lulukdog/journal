@@ -15,6 +15,16 @@ TINY_PNG_B64 = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _clear_login_failures():
+    """限流计数是模块级的，测试之间会互相污染 —— 每个测试前后都清掉。"""
+    from app import auth
+
+    auth._failures.clear()
+    yield
+    auth._failures.clear()
+
+
 @pytest.fixture
 def conn(tmp_path):
     c = db_mod.connect(tmp_path / "journal.db")

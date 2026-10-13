@@ -39,6 +39,33 @@ def test_login_rejects_wrong_token(client):
     assert client.post("/api/login", json={"token": "nope"}).status_code == 401
 
 
+def test_login_locks_out_after_repeated_failures(client):
+    """口令可能很短，所以真正的防线是限流。"""
+    from app import auth
+
+    for _ in range(auth.LOCKOUT_AFTER):
+        assert client.post("/api/login", json={"token": "wrong"}).status_code == 401
+
+    locked = client.post("/api/login", json={"token": "wrong"})
+    assert locked.status_code == 429
+    assert "分钟" in locked.json()["detail"]
+
+    # 锁定期内就算口令对了也不放行
+    assert client.post("/api/login", json={"token": TOKEN}).status_code == 429
+
+
+def test_successful_login_resets_the_counter(client):
+    from app import auth
+
+    for _ in range(auth.LOCKOUT_AFTER - 1):
+        client.post("/api/login", json={"token": "wrong"})
+    assert client.post("/api/login", json={"token": TOKEN}).status_code == 200
+
+    # 计数器清了，又可以错几次
+    for _ in range(auth.LOCKOUT_AFTER - 1):
+        assert client.post("/api/login", json={"token": "wrong"}).status_code == 401
+
+
 def test_state_requires_auth(client):
     assert client.get("/api/state").status_code == 401
 

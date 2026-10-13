@@ -95,10 +95,22 @@ class OnboardingBody(BaseModel):
 @app.post("/api/login")
 async def login(request: Request, body: LoginBody, response: Response):
     settings = get_settings(request)
+    client = getattr(request, "client", None)
+    ip = client.host if client else "unknown"
+
+    remaining = auth.lockout_remaining(ip)
+    if remaining:
+        raise HTTPException(
+            429, f"口令错太多次了，{remaining // 60 + 1} 分钟后再试。"
+        )
+
     if not settings.app_token:
         raise HTTPException(500, "服务器没有设置口令。")
     if not auth.verify_token(body.token, settings.app_token):
+        auth.record_failure(ip)
         raise HTTPException(401, "口令不对。")
+
+    auth.clear_failures(ip)
     auth.set_session_cookie(response, settings.app_token)
     return {"ok": True}
 

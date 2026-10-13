@@ -37,24 +37,65 @@ function shiftDay(day, delta) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+const TOKEN_KEY = 'journal.token';
+
+function savedToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (err) { return ''; }
+}
+
+function saveToken(token) {
+  try { localStorage.setItem(TOKEN_KEY, token); } catch (err) { /* 无痕模式，算了吧 */ }
+}
+
+function forgetToken() {
+  try { localStorage.removeItem(TOKEN_KEY); } catch (err) { /* 同上 */ }
+}
+
 async function api(path, options = {}) {
+  const { silentAuth = false, retried = false, ...init } = options;
+
   let res;
   try {
     res = await fetch(path, {
       headers: { 'Content-Type': 'application/json' },
-      ...options,
+      ...init,
     });
   } catch (err) {
     throw new Error('网络不通，检查一下连上了没有。');
   }
+
+  // cookie 没了（清了数据、或者过期），但这台设备自己记着口令 ——
+  // 静默补登一次再重试原请求。登录过一次就不该再让人输。
+  if (res.status === 401 && !retried && path !== '/api/login') {
+    if (await trySilentLogin()) {
+      return api(path, { ...options, retried: true });
+    }
+  }
+
   if (res.status === 401) {
-    showLogin();
+    if (!silentAuth) showLogin();
     throw new AuthError('未登录');
   }
+
   let body = {};
   try { body = await res.json(); } catch (err) { body = {}; }
   if (!res.ok) throw new Error(body.detail || `出错了（${res.status}）`);
   return body;
+}
+
+async function trySilentLogin() {
+  const token = savedToken();
+  if (!token) return false;
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    return res.ok;
+  } catch (err) {
+    return false;
+  }
 }
 
 /* ---------- 遮罩：登录 / 引导访谈 ---------- */
@@ -69,25 +110,34 @@ function hideOverlay() {
 }
 
 function showLogin(message) {
+  const known = savedToken();
   showOverlay(`
     <h1>日记</h1>
-    <p>${message || '输入口令进来。'}</p>
+    <p>${message || (known ? '这张设备上的口令不对了，重新输一次。' : '输入口令进来。')}</p>
     <input id="token" type="password" placeholder="口令" autocomplete="current-password">
     <p class="err" id="loginerr"></p>
     <button id="loginbtn">进去</button>
+    ${known ? '<button class="link" id="forgetbtn">换一个口令</button>' : ''}
   `);
-  const submit = async () => {
-    const token = $('token').value.trim();
+  const submit = async (given) => {
+    const token = given || $('token').value.trim();
     if (!token) return;
     try {
-      await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
+      await api('/api/login', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+        silentAuth: true,
+      });
+      saveToken(token);
       hideOverlay();
       await boot();
     } catch (err) {
       $('loginerr').textContent = err.message;
     }
   };
-  $('loginbtn').onclick = submit;
+  $('loginbtn').onclick = () => submit();
+  const forget = $('forgetbtn');
+  if (forget) forget.onclick = () => { forgetToken(); showLogin('好，输一个新的。'); };
   $('token').onkeydown = (e) => { if (e.key === 'Enter') submit(); };
   $('token').focus();
 }
@@ -252,19 +302,28 @@ async function load(day, scrollToBottom = false) {
 }
 
 async function boot() {
-  let me;
+  // 1) cookie 还在就直接进去
   try {
-    me = await api('/api/me');
+    const me = await api('/api/me', { silentAuth: true });
+    if (me.ok) {
+      await load(null);
+      return;
+    }
   } catch (err) {
-    if (err instanceof AuthError) return;
-    showLogin('连不上服务器。');
+    if (!(err instanceof AuthError)) {
+      showLogin('连不上服务器。');
+      return;
+    }
+  }
+
+  // 2) cookie 没了，用这台设备自己记着的口令补一次
+  if (await trySilentLogin()) {
+    await load(null);
     return;
   }
-  if (!me.ok) {
-    showLogin();
-    return;
-  }
-  await load(null);
+
+  // 3) 真的不行了，才让人输
+  showLogin();
 }
 
 /* ---------- 动作 ---------- */
