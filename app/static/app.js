@@ -288,8 +288,15 @@ function renderHeader(day, today) {
   const isToday = day === today;
   $('datelabel').innerHTML = isToday
     ? `今天<span class="sub">${formatDay(day)}</span>`
-    : `${formatDay(day)}`;
+    : formatDay(day);
+
   $('next').disabled = isToday;
+  $('backtotoday').hidden = isToday;
+
+  // 原生日期选择器跟着当前天走，并且不让选到未来。
+  const picker = $('datepicker');
+  picker.max = today;
+  if (picker.value !== day) picker.value = day;
 }
 
 /* ---------- 数据 ---------- */
@@ -501,6 +508,10 @@ function autosize(el) {
 
 $('prev').onclick = () => load(shiftDay(state.day, -1));
 $('next').onclick = () => { if (state.day !== state.today) load(shiftDay(state.day, 1)); };
+$('backtotoday').onclick = () => { if (state.today) load(state.today); };
+$('datepicker').onchange = (e) => {
+  if (e.target.value) load(e.target.value);
+};
 $('save').onclick = remember;
 $('askbtn').onclick = askIt;
 $('camera').onclick = () => $('file').click();

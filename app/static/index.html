@@ -14,7 +14,16 @@
 <div id="app" hidden>
   <header id="datebar">
     <button id="prev" aria-label="前一天">‹</button>
-    <div id="datelabel">—</div>
+    <!--
+      用一个透明的原生 date input 盖在日期文字上。
+      这样手机上点一下就会弹出系统自带的日期选择器，不用一天天挪。
+      （用 showPicker() 在部分浏览器/版本上不可靠，盖一层是最稳的。）
+    -->
+    <div id="datefield">
+      <span id="datelabel">—</span>
+      <button id="backtotoday" type="button" hidden>今天</button>
+      <input type="date" id="datepicker" aria-label="选择日期">
+    </div>
     <button id="next" aria-label="后一天">›</button>
   </header>
 
