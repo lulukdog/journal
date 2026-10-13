@@ -348,10 +348,43 @@ async function boot() {
 
 /* ---------- 动作 ---------- */
 
-function setBusy(busy) {
+function setBusy(busy, label) {
   state.busy = busy;
   $('save').disabled = busy;
   $('askbtn').disabled = busy;
+  $('askbtn').textContent = busy ? label || '等一下…' : '问它';
+}
+
+// 模型要十几秒才回。这期间屏幕不能一动不动，否则看起来就是卡死了。
+function pushLocalBubble(text) {
+  const stream = $('stream');
+  const row = document.createElement('div');
+  row.className = 'row mine';
+  row.innerHTML = '<div class="bubble"></div>';
+  const bubble = row.firstChild;
+  bubble.textContent = text;
+  const stamp = document.createElement('span');
+  stamp.className = 'stamp';
+  stamp.textContent = '刚发出';
+  bubble.appendChild(stamp);
+  stream.appendChild(row);
+  stream.scrollTop = stream.scrollHeight;
+}
+
+function showThinking() {
+  if ($('thinking')) return;
+  const stream = $('stream');
+  const row = document.createElement('div');
+  row.className = 'row theirs';
+  row.id = 'thinking';
+  row.innerHTML = '<div class="bubble thinking"><span></span><span></span><span></span></div>';
+  stream.appendChild(row);
+  stream.scrollTop = stream.scrollHeight;
+}
+
+function hideThinking() {
+  const el = $('thinking');
+  if (el) el.remove();
 }
 
 async function remember() {
@@ -373,18 +406,26 @@ async function remember() {
 async function askIt() {
   const text = $('input').value.trim();
   if (!text) { toast('想问什么？先写一句。'); return; }
-  setBusy(true);
+
+  $('input').value = '';
+  autosize($('input'));
+  // 先把你说的话、和「它在想」都显示出来。
+  // 不这么做的话，模型思考的这十几秒里屏幕什么都不动，看起来像卡死。
+  pushLocalBubble(text);
+  showThinking();
+  setBusy(true, '它正在想…');
+
   try {
     await api('/api/entries', { method: 'POST', body: JSON.stringify({ text }) });
-    $('input').value = '';
-    autosize($('input'));
     const result = await api('/api/ask', { method: 'POST', body: JSON.stringify({ text }) });
+    hideThinking();
     await load(state.day, true);
-    toast(result.reply ? '它答了。' : '它没说什么。');
+    if (!result.reply) toast('它没说什么。');
   } catch (err) {
+    hideThinking();
     if (!(err instanceof AuthError)) {
       // 问题已经记下了，只是回答失败 —— 说清楚，别让人以为白写了
-      toast(`${err.message}（你的问题已经记下了）`, 4200);
+      toast(`${err.message}（你的问题已经记下了）`, 4500);
       await load(state.day, true);
     }
   } finally {

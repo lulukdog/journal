@@ -26,7 +26,8 @@ echo "→ 清字节码缓存"
 ssh "$HOST" "find $TARGET -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null; true"
 
 echo "→ 修正属主"
-ssh "$HOST" "chown -R journal:journal $TARGET && chown root:root $TARGET/.env 2>/dev/null; chown journal:journal $TARGET/.env"
+# .env 必须归 journal，服务才读得到；写两遍是因为 rsync 会把目录属主改掉。
+ssh "$HOST" "chown -R journal:journal $TARGET && chown journal:journal $TARGET/.env"
 
 echo "→ 重启服务"
 ssh "$HOST" "systemctl restart journal && systemctl is-active journal"
