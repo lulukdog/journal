@@ -243,7 +243,7 @@ async def run(settings, conn: sqlite3.Connection, day: str | None = None) -> dic
             spoken.append({"type": signal.type, "text": text})
     summary["steps"]["spoken"] = spoken
 
-    pending = [r["id"] for r in entries_mod.unprocessed(conn)]
+    pending = [r["id"] for r in entries_mod.unprocessed(conn, day=day)]
     # 只有模型真的看过了才标记已处理。否则今晚模型挂了，
     # 这些记录就永远不会被总结，而且不会重试。
     if summary["steps"].get("summary") is True:

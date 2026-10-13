@@ -7,6 +7,8 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/journal
 EnvironmentFile=/opt/journal/.env
+# 一天的边界是凌晨 4:00，所以时区是产品行为的一部分，不能依赖系统默认
+Environment=TZ=Asia/Shanghai
 ExecStart=/opt/journal/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 10002 --log-level warning --no-access-log
 Restart=always
 RestartSec=3

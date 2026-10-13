@@ -1,0 +1,13 @@
+[Unit]
+Description=journal nightly database backup
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/journal
+User=journal
+Group=journal
+Environment=TZ=Asia/Shanghai
+ExecStart=/opt/journal/.venv/bin/python /opt/journal/run_backup.py
+StandardOutput=append:/var/log/journal-backup.log
+StandardError=append:/var/log/journal-backup.log

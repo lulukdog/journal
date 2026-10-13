@@ -42,6 +42,20 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="journal", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def never_cache_the_shell(request: Request, call_next):
+    """页面和静态文件不让浏览器缓存。
+
+    这是个自己用的小应用，文件只有几 KB。而缓存带来的"改了代码但浏览器还在跑旧的"
+    这种坑，比省下的那点流量贵得多。接口响应本来就不缓存。
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    return response
+
+
 def get_conn(request: Request) -> sqlite3.Connection:
     return request.app.state.conn
 

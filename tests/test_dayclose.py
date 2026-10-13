@@ -189,6 +189,20 @@ def test_guard_silence_gap():
 
 
 @pytest.mark.asyncio
+async def test_dayclose_only_touches_its_own_day(fake_settings, conn, patch_llm):
+    """收口某一天时，不能把其他天的记录也标成已处理。"""
+    entries_mod.create_text(
+        conn, "昨天的话", ts=datetime(2026, 10, 12, 12, 0), boundary_hour=4
+    )
+    _seed_day(conn)
+    await dayclose.run(fake_settings, conn, "2026-10-13")
+
+    remaining = entries_mod.unprocessed(conn)
+    assert len(remaining) == 1, "昨天那条不该被今天顺手标掉"
+    assert remaining[0]["content"] == "昨天的话"
+
+
+@pytest.mark.asyncio
 async def test_speak_applies_guard_end_to_end(fake_settings, conn, monkeypatch):
     """守卫要真的接在出口上，不能只是个没人调的纯函数。"""
     _seed_day(conn)

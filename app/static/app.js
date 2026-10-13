@@ -115,7 +115,7 @@ function showOnboarding(onboarding) {
       });
       if (next.done) {
         hideOverlay();
-        await load(state.day);
+        await load(state.day, true);
         toast('好，我记住了。');
       } else {
         showOnboarding(next);
@@ -170,7 +170,7 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
-function renderStream(data) {
+function renderStream(data, scrollToBottom) {
   const items = [];
   for (const entry of data.entries) {
     items.push({ ts: entry.ts, kind: 'mine', entry });
@@ -205,8 +205,13 @@ function renderStream(data) {
     }
   }
 
-  $('stream').innerHTML = html;
-  $('stream').scrollTop = $('stream').scrollHeight;
+  const stream = $('stream');
+  stream.innerHTML = html;
+  // 打开时停在顶部 —— 先看到「今天的你」那张卡片，那是这个产品对你的承诺。
+  // 只有刚说完话才滚到底看最新的。
+  if (scrollToBottom) {
+    stream.scrollTop = stream.scrollHeight;
+  }
 }
 
 function renderHeader(day, today) {
@@ -219,7 +224,7 @@ function renderHeader(day, today) {
 
 /* ---------- 数据 ---------- */
 
-async function load(day) {
+async function load(day, scrollToBottom = false) {
   const query = day ? `?day=${day}` : '';
   let data;
   try {
@@ -235,7 +240,7 @@ async function load(day) {
   $('app').hidden = false;
   hideOverlay();
   renderHeader(data.day, data.today);
-  renderStream(data);
+  renderStream(data, scrollToBottom);
 
   if (!data.configured) {
     toast('服务器还没配好模型密钥。', 5000);
@@ -278,7 +283,7 @@ async function remember() {
     await api('/api/entries', { method: 'POST', body: JSON.stringify({ text }) });
     $('input').value = '';
     autosize($('input'));
-    await load(state.day);
+    await load(state.day, true);
   } catch (err) {
     if (!(err instanceof AuthError)) toast(err.message);
   } finally {
@@ -295,13 +300,13 @@ async function askIt() {
     $('input').value = '';
     autosize($('input'));
     const result = await api('/api/ask', { method: 'POST', body: JSON.stringify({ text }) });
-    await load(state.day);
+    await load(state.day, true);
     toast(result.reply ? '它答了。' : '它没说什么。');
   } catch (err) {
     if (!(err instanceof AuthError)) {
       // 问题已经记下了，只是回答失败 —— 说清楚，别让人以为白写了
       toast(`${err.message}（你的问题已经记下了）`, 4200);
-      await load(state.day);
+      await load(state.day, true);
     }
   } finally {
     setBusy(false);
@@ -344,7 +349,7 @@ async function sendImage(file) {
     });
     $('input').value = '';
     autosize($('input'));
-    await load(state.day);
+    await load(state.day, true);
   } catch (err) {
     if (!(err instanceof AuthError)) toast(err.message);
   } finally {

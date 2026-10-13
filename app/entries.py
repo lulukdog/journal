@@ -126,10 +126,22 @@ def list_by_day(conn: sqlite3.Connection, day: str) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def unprocessed(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
+def unprocessed(
+    conn: sqlite3.Connection, limit: int = 200, day: str | None = None
+) -> list[sqlite3.Row]:
+    """还没被模型看过的记录。
+
+    传 day 就只取那一天的 —— 收口是针对某一天的，
+    不能把其他天的记录一起标成已处理。
+    """
+    if day is None:
+        return conn.execute(
+            "SELECT * FROM entries WHERE processed = 0 ORDER BY ts ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
     return conn.execute(
-        "SELECT * FROM entries WHERE processed = 0 ORDER BY ts ASC LIMIT ?",
-        (limit,),
+        "SELECT * FROM entries WHERE processed = 0 AND day = ? ORDER BY ts ASC LIMIT ?",
+        (day, limit),
     ).fetchall()
 
 

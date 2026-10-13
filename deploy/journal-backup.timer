@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the journal backup at 04:30 (after the day boundary)
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+Timezone=Asia/Shanghai
+Persistent=true
+
+[Install]
+WantedBy=timers.target
