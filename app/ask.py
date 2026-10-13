@@ -12,8 +12,10 @@ async def answer(settings, conn: sqlite3.Connection, question: str, day: str) ->
     if not text:
         raise llm.LLMError("你想问什么？先说一句。")
 
-    messages = memory.build_ask_messages(conn, text, day)
-    reply = await llm.chat(
+    messages = memory.build_ask_messages(
+        conn, text, day, media_dir=settings.media_dir, max_images=2
+    )
+    reply = await llm.chat_with_images(
         settings,
         messages,
         model=settings.model_deep,

@@ -11,10 +11,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from . import days as days_mod
 from . import entries as entries_mod
-from . import prompts
+from . import llm, prompts
 
 ENTRY_LIMIT = 20
 CARD_DAYS = 7
@@ -134,12 +135,62 @@ def entries_text(rows: list[sqlite3.Row]) -> str:
     return "\n".join(lines)
 
 
+def build_user_content(
+    rows: list[sqlite3.Row],
+    media_dir: Path | str | None = None,
+    max_images: int = 3,
+):
+    """把一天的记录变成能发给模型的内容。
+
+    有图且允许带图时返回 OpenAI 兼容的 content 数组（文字 + image_url），
+    否则返回纯字符串。
+
+    图片必须真的发过去 —— 否则模型只知道「这里有一张图」，照片白拍了。
+    但要限量，因为图片按块计费。
+    """
+    text = entries_text(rows)
+    parts = _image_parts(rows, media_dir, max_images)
+    if not parts:
+        return text
+    return [{"type": "text", "text": text}] + parts
+
+
+def _image_parts(
+    rows: list[sqlite3.Row],
+    media_dir: Path | str | None,
+    max_images: int,
+) -> list[dict]:
+    if media_dir is None or max_images <= 0:
+        return []
+    candidates = [r for r in rows if r["kind"] == "image" and r["image_path"]][
+        -max_images:
+    ]
+    out: list[dict] = []
+    for row in candidates:
+        path = Path(media_dir) / row["image_path"]
+        if not path.is_file():
+            continue
+        try:
+            url = llm.image_data_url(path)
+        except OSError:
+            continue
+        stamp = row["ts"][:16].replace("T", " ")
+        caption = row["content"] or "（没写字）"
+        out.append(
+            {"type": "text", "text": f"{stamp} 他发的图，自己写的：「{caption}」"}
+        )
+        out.append({"type": "image_url", "image_url": {"url": url}})
+    return out
+
+
 def build_ask_messages(
     conn: sqlite3.Connection,
     question: str,
     day: str,
     *,
     entry_limit: int = ENTRY_LIMIT,
+    media_dir: Path | str | None = None,
+    max_images: int = 2,
 ) -> list[dict]:
     """组装「问它」的上下文。entries 段严格限量。"""
     hits = search_entries(conn, question, limit=entry_limit)
@@ -152,22 +203,40 @@ def build_ask_messages(
             if len(hits) >= entry_limit:
                 break
 
+    hits = hits[:entry_limit]
     context = (
         "## 关于他的长期事实\n"
         f"{get_profile(conn)}\n\n"
         f"## 最近 {CARD_DAYS} 天的卡片\n"
         f"{cards_text(conn, day)}\n\n"
         "## 检索到的相关记录\n"
-        f"{entries_text(hits[:entry_limit])}\n\n"
+        f"{entries_text(hits)}\n\n"
         "## 你之前主动跟他说过的话（别重复）\n"
         f"{recent_utterances(conn, day)}\n"
     )
 
+    body = _question_with_images(question, hits, media_dir, max_images)
     return [
         {"role": "system", "content": prompts.ASK_SYSTEM},
         {"role": "system", "content": context},
-        {"role": "user", "content": question},
+        {"role": "user", "content": body},
     ]
+
+
+def _question_with_images(
+    question: str,
+    rows: list[sqlite3.Row],
+    media_dir: Path | str | None,
+    max_images: int,
+):
+    """问题本体不变，图片附在同一个 user 消息里。
+
+    没图片时返回纯字符串，这样上层拿到的东西和以前一模一样。
+    """
+    parts = _image_parts(rows, media_dir, max_images)
+    if not parts:
+        return question
+    return [{"type": "text", "text": question}] + parts
 
 
 def record_utterance(
@@ -196,6 +265,7 @@ __all__ = [
     "CARD_DAYS",
     "ENTRY_LIMIT",
     "build_ask_messages",
+    "build_user_content",
     "cards_text",
     "entries_text",
     "get_profile",
@@ -204,6 +274,4 @@ __all__ = [
     "search_entries",
     "upsert_memory",
     "utterances_for_day",
-    "json",
-    "timedelta",
 ]

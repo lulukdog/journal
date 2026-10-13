@@ -2,6 +2,9 @@ from datetime import datetime
 
 from app import memory, onboarding
 from app import entries as entries_mod
+from tests.conftest import TINY_PNG_B64
+
+import base64
 
 
 def _seed(conn, texts, day="2026-10-13"):
@@ -72,6 +75,83 @@ def test_build_ask_messages_carries_previous_utterances(conn):
     memory.record_utterance(conn, "2026-10-12", "signal:repeat", "你最近老提累")
     messages = memory.build_ask_messages(conn, "随便问问", "2026-10-13")
     assert "你最近老提累" in messages[1]["content"]
+
+
+# ---------- 图片得真的发给模型 ----------
+# 设计文档 5.7 要求图片转成 data URL 发给模型。
+# 只看得到「这里有一张图」等于照片白拍了。
+
+
+def _add_image(conn, media_dir, caption=None, hour=12):
+    data = base64.b64decode(TINY_PNG_B64)
+    rel = entries_mod.save_image_bytes(
+        media_dir, data, ".png", datetime(2026, 10, 13, hour, 0)
+    )
+    entries_mod.create_image(
+        conn, rel, caption=caption, ts=datetime(2026, 10, 13, hour, 0)
+    )
+    return rel
+
+
+def test_entries_text_only_mentions_the_image(conn, media_dir):
+    _add_image(conn, media_dir, caption="窗外")
+    rows = entries_mod.list_by_day(conn, "2026-10-13")
+    assert "[图片]" in memory.entries_text(rows)
+
+
+def test_build_user_content_attaches_real_images(conn, media_dir):
+    _add_image(conn, media_dir, caption="窗外")
+    rows = entries_mod.list_by_day(conn, "2026-10-13")
+    content = memory.build_user_content(rows, media_dir, max_images=3)
+
+    assert isinstance(content, list), "有图就该是 content 数组"
+    assert content[0]["type"] == "text"
+    urls = [p for p in content if p["type"] == "image_url"]
+    assert len(urls) == 1
+    assert urls[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+
+def test_build_user_content_limits_images(conn, media_dir):
+    """图片按块计费，不能一天十张全塞进去。"""
+    for i in range(5):
+        _add_image(conn, media_dir, hour=10 + i)
+    rows = entries_mod.list_by_day(conn, "2026-10-13")
+    content = memory.build_user_content(rows, media_dir, max_images=2)
+    assert sum(1 for p in content if p["type"] == "image_url") == 2
+
+
+def test_build_user_content_stays_text_without_images(conn, media_dir):
+    entries_mod.create_text(
+        conn, "只有文字", ts=datetime(2026, 10, 13, 12, 0), boundary_hour=4
+    )
+    rows = entries_mod.list_by_day(conn, "2026-10-13")
+    assert isinstance(memory.build_user_content(rows, media_dir), str)
+
+
+def test_build_user_content_skips_missing_files(conn, media_dir):
+    """数据库里有路径、磁盘上没了 —— 不该崩。"""
+    entries_mod.create_image(
+        conn, "2026/10/not-there.png", ts=datetime(2026, 10, 13, 12, 0)
+    )
+    rows = entries_mod.list_by_day(conn, "2026-10-13")
+    assert isinstance(memory.build_user_content(rows, media_dir), str)
+
+
+def test_ask_keeps_question_plain_when_no_images(conn):
+    messages = memory.build_ask_messages(conn, "我该做什么", "2026-10-13")
+    assert messages[-1] == {"role": "user", "content": "我该做什么"}
+
+
+def test_ask_attaches_images_to_the_question(conn, media_dir):
+    _add_image(conn, media_dir, caption="窗外")
+    messages = memory.build_ask_messages(
+        conn, "这张图里是什么", "2026-10-13", media_dir=media_dir, max_images=2
+    )
+    content = messages[-1]["content"]
+    assert messages[-1]["role"] == "user"
+    assert isinstance(content, list)
+    assert content[0] == {"type": "text", "text": "这张图里是什么"}
+    assert any(p["type"] == "image_url" for p in content)
 
 
 # ---------- 画像 ----------

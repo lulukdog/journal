@@ -6,9 +6,14 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_BASE_URL = "https://openapi.lingyiwanwu.net/v1"
-DEFAULT_MODEL = "deepseek-v4.1-flash"
-DEFAULT_MODEL_DEEP = "gpt-5.6-luna"
+DEFAULT_BASE_URL = "https://api.deepseek.com"
+# 两个模型任选：
+#   deepseek-flash    → DeepSeek-V4.1-Flash，100 万上下文，**能看图**
+#   deepseek-v4-pro   → DeepSeek-V4-Pro，100 万上下文，**不能看图**（纯文本）
+# 默认两个都用 V4.1：图片要真的发给模型才有意义，
+# 而「问它」和每日卡片都会把当天照片一并送过去。
+DEFAULT_MODEL = "deepseek-flash"
+DEFAULT_MODEL_DEEP = "deepseek-flash"
 DEFAULT_DB_PATH = "/var/lib/journal/journal.db"
 DEFAULT_MEDIA_DIR = "/var/lib/journal/media"
 DEFAULT_DAY_BOUNDARY_HOUR = 4
@@ -67,8 +72,8 @@ def load_settings(env_file: Path | str | None = None) -> Settings:
     return Settings(
         db_path=Path(get("JOURNAL_DB_PATH", DEFAULT_DB_PATH)),
         media_dir=Path(get("JOURNAL_MEDIA_DIR", DEFAULT_MEDIA_DIR)),
-        api_key=get("LINGYI_API_KEY"),
-        base_url=get("LINGYI_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
+        api_key=get("JOURNAL_LLM_API_KEY"),
+        base_url=get("JOURNAL_LLM_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
         model=get("JOURNAL_MODEL", DEFAULT_MODEL),
         model_deep=get("JOURNAL_MODEL_DEEP", DEFAULT_MODEL_DEEP),
         app_token=get("JOURNAL_APP_TOKEN"),

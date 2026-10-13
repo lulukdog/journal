@@ -19,7 +19,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("JOURNAL_DB_PATH", str(tmp_path / "api.db"))
     monkeypatch.setenv("JOURNAL_MEDIA_DIR", str(tmp_path / "media"))
     monkeypatch.setenv("JOURNAL_APP_TOKEN", TOKEN)
-    monkeypatch.setenv("LINGYI_API_KEY", "fake-key")
+    monkeypatch.setenv("JOURNAL_LLM_API_KEY", "fake-key")
     monkeypatch.setenv("JOURNAL_DAY_BOUNDARY_HOUR", "4")
     with TestClient(main_mod.app) as c:
         yield c

@@ -72,10 +72,15 @@ async def summarize_day(settings, conn: sqlite3.Connection, day: str) -> dict | 
     body = memory.entries_text(rows)
     messages = [
         {"role": "system", "content": prompts.DAY_SUMMARY_SYSTEM},
-        {"role": "user", "content": body},
+        {
+            "role": "user",
+            "content": memory.build_user_content(rows, settings.media_dir, max_images=3),
+        },
     ]
     try:
-        raw = await llm.chat(settings, messages, temperature=0.3, max_tokens=2500)
+        raw = await llm.chat_with_images(
+            settings, messages, temperature=0.3, max_tokens=2500
+        )
         data = llm.extract_json(raw)
     except llm.LLMError as exc:
         log.warning("摘要失败 day=%s: %s", day, exc)

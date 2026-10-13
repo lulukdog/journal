@@ -9,11 +9,14 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
 
 import httpx
+
+log = logging.getLogger("journal.llm")
 
 MAX_EDGE = 1568
 
@@ -146,3 +149,55 @@ async def chat(
         raise LLMError("模型返回了空内容。")
 
     raise LLMError("模型返回了空内容。")
+
+
+def has_images(messages: list[dict]) -> bool:
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list) and any(
+            part.get("type") == "image_url" for part in content
+        ):
+            return True
+    return False
+
+
+def strip_images(messages: list[dict]) -> list[dict] | None:
+    """去掉图片只留文字。没图就返回 None。"""
+    if not has_images(messages):
+        return None
+    out: list[dict] = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list):
+            texts = [
+                part.get("text", "") for part in content if part.get("type") == "text"
+            ]
+            out.append({**message, "content": "\n".join(texts)})
+        else:
+            out.append(message)
+    return out
+
+
+async def chat_with_images(
+    settings,
+    messages: list[dict],
+    *,
+    model: str | None = None,
+    **kwargs: Any,
+) -> str:
+    """带图先试一次；模型不认图片就去掉图片重试，并记一条日志。
+
+    为什么要这样：不是每个模型都能看图（比如 deepseek-v4-pro 是纯文本）。
+    与其让人去维护一张「哪个模型能看图」的表，不如让它自己退。
+    现在两个模型默认都能看图，这层基本不会触发 —— 但换模型时就保住了。
+    """
+    try:
+        return await chat(settings, messages, model=model, **kwargs)
+    except LLMError as exc:
+        plain = strip_images(messages)
+        if plain is None:
+            raise
+        log.warning(
+            "模型不接受图片（%s），去掉图片重试：%s", model or settings.model, exc
+        )
+        return await chat(settings, plain, model=model, **kwargs)
