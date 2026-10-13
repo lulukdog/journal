@@ -67,6 +67,25 @@ deploy/          systemd unit + 部署脚本
 
 记忆分四层：原始记录 → 日卡片 → 周/月总结 → 画像（`memories`）。**画像和流水是分开的**——你问「我该不该辞职」，需要的是「他的收入结构是什么、有什么负担」这种有限条数、会被更新的事实，不是一堆原始句子。
 
+## 口令
+
+口令是进这个应用唯一的一道门，存在服务器上的 `/opt/journal/.env`。
+
+```bash
+# 忘了就查出来
+ssh journal-server 'python3 /opt/journal/deploy/token.py show'
+
+# 换一个随机的
+ssh journal-server 'python3 /opt/journal/deploy/token.py new'
+
+# 或者设成你记得住的
+ssh journal-server 'python3 /opt/journal/deploy/token.py set 我的口令'
+```
+
+改完会重启服务，**所有设备需要重新登录一次**。
+
+已经登录过的浏览器有一年的 cookie，所以忘了口令不影响你继续用——只有在新设备上、或者清了 cookie 之后才需要它。
+
 ## 常用命令
 
 ```bash
