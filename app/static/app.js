@@ -1,0 +1,382 @@
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+const MAX_EDGE = 1568;
+
+const state = { day: null, today: null, busy: false };
+
+class AuthError extends Error {}
+
+/* ---------- 工具 ---------- */
+
+function toast(message, ms = 2600) {
+  const el = $('toast');
+  el.textContent = message;
+  el.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.hidden = true; }, ms);
+}
+
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+function formatDay(day) {
+  const [y, m, d] = day.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return `${m} 月 ${d} 日 · ${WEEKDAYS[date.getDay()]}`;
+}
+
+function formatTime(ts) {
+  const t = (ts || '').slice(11, 16);
+  return t || '';
+}
+
+function shiftDay(day, delta) {
+  const [y, m, d] = day.split('-').map(Number);
+  const date = new Date(y, m - 1, d + delta);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+async function api(path, options = {}) {
+  let res;
+  try {
+    res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+  } catch (err) {
+    throw new Error('网络不通，检查一下连上了没有。');
+  }
+  if (res.status === 401) {
+    showLogin();
+    throw new AuthError('未登录');
+  }
+  let body = {};
+  try { body = await res.json(); } catch (err) { body = {}; }
+  if (!res.ok) throw new Error(body.detail || `出错了（${res.status}）`);
+  return body;
+}
+
+/* ---------- 遮罩：登录 / 引导访谈 ---------- */
+
+function showOverlay(html) {
+  $('panel').innerHTML = html;
+  $('overlay').hidden = false;
+}
+
+function hideOverlay() {
+  $('overlay').hidden = true;
+}
+
+function showLogin(message) {
+  showOverlay(`
+    <h1>日记</h1>
+    <p>${message || '输入口令进来。'}</p>
+    <input id="token" type="password" placeholder="口令" autocomplete="current-password">
+    <p class="err" id="loginerr"></p>
+    <button id="loginbtn">进去</button>
+  `);
+  const submit = async () => {
+    const token = $('token').value.trim();
+    if (!token) return;
+    try {
+      await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
+      hideOverlay();
+      await boot();
+    } catch (err) {
+      $('loginerr').textContent = err.message;
+    }
+  };
+  $('loginbtn').onclick = submit;
+  $('token').onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+  $('token').focus();
+}
+
+function showOnboarding(onboarding) {
+  const q = onboarding.question;
+  if (!q) return false;
+  showOverlay(`
+    <div class="progress">第 ${q.index + 1} / ${q.total} 个问题</div>
+    <h1>先让我认识你一下</h1>
+    <p>${q.text}</p>
+    <textarea id="answer" rows="3" placeholder="随便说，给个大概就行"></textarea>
+    <button id="answerbtn">说完了</button>
+    <button class="link" id="skipbtn">跳过这个问题</button>
+    <p class="err" id="oberr"></p>
+  `);
+
+  const send = async (skipped) => {
+    const answer = skipped ? null : $('answer').value.trim();
+    if (!skipped && !answer) { $('oberr').textContent = '写点什么，或者跳过。'; return; }
+    try {
+      const next = await api('/api/onboarding/answer', {
+        method: 'POST',
+        body: JSON.stringify({ key: q.key, answer, skipped }),
+      });
+      if (next.done) {
+        hideOverlay();
+        await load(state.day);
+        toast('好，我记住了。');
+      } else {
+        showOnboarding(next);
+      }
+    } catch (err) {
+      if (err instanceof AuthError) return;
+      $('oberr').textContent = err.message;
+    }
+  };
+
+  $('answerbtn').onclick = () => send(false);
+  $('skipbtn').onclick = () => send(true);
+  $('answer').focus();
+  return true;
+}
+
+/* ---------- 渲染 ---------- */
+
+function moodBar(mood) {
+  const level = typeof mood === 'number' ? mood + 2 : -1;
+  let html = '<div class="moodbar">';
+  for (let i = 0; i < 5; i += 1) {
+    const on = level >= 0 && i <= level;
+    const deep = on && level >= 3;
+    html += `<i class="${on ? 'on' : ''} ${deep ? 'deep' : ''}"></i>`;
+  }
+  return html + '</div>';
+}
+
+function cardHtml(card, day) {
+  if (!card) return '';
+  const label = card.mood_label ? card.mood_label : '今天还没说';
+  const parts = [`${card.entry_count} 段`];
+  if (card.image_count) parts.push(`${card.image_count} 张图`);
+
+  return `
+    <div class="card">
+      <h2><span>${day === state.today ? '今天的你' : '那天的你'}</span>
+          <span class="count">${parts.join(' · ')}</span></h2>
+      ${moodBar(card.mood)}
+      <div class="headline">「${escapeHtml(label)}」</div>
+      ${card.headline ? `<div class="keywords">${escapeHtml(card.headline)}</div>` : ''}
+      ${(card.keywords && card.keywords.length)
+        ? `<div class="keywords">${card.keywords.map((k) => `<span>${escapeHtml(k)}</span>`).join('')}</div>`
+        : ''}
+    </div>`;
+}
+
+function escapeHtml(text) {
+  return String(text == null ? '' : text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderStream(data) {
+  const items = [];
+  for (const entry of data.entries) {
+    items.push({ ts: entry.ts, kind: 'mine', entry });
+  }
+  for (const said of data.utterances) {
+    items.push({ ts: said.ts, kind: 'theirs', said });
+  }
+  items.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+
+  let html = cardHtml(data.card, data.day);
+
+  if (!items.length) {
+    html += `<div class="empty">${
+      data.day === data.today ? '今天还没有什么。说一句吧。' : '这一天是空的。'
+    }</div>`;
+  }
+
+  for (const item of items) {
+    if (item.kind === 'mine') {
+      const e = item.entry;
+      const inner = e.kind === 'image'
+        ? `<img src="/media/${encodeURI(e.image_path || '')}" alt="图片" loading="lazy">${
+            e.content ? escapeHtml(e.content) : ''}`
+        : escapeHtml(e.content);
+      html += `<div class="row mine"><div class="bubble">${inner}
+        <span class="stamp">${formatTime(e.ts)}</span></div></div>`;
+    } else {
+      const s = item.said;
+      const marker = s.trigger && s.trigger !== 'ask' && s.trigger !== 'onboarding';
+      html += `<div class="row theirs"><div class="bubble ${marker ? 'marker' : ''}">${
+        escapeHtml(s.content)}<span class="stamp">${formatTime(s.ts)}</span></div></div>`;
+    }
+  }
+
+  $('stream').innerHTML = html;
+  $('stream').scrollTop = $('stream').scrollHeight;
+}
+
+function renderHeader(day, today) {
+  const isToday = day === today;
+  $('datelabel').innerHTML = isToday
+    ? `今天<span class="sub">${formatDay(day)}</span>`
+    : `${formatDay(day)}`;
+  $('next').disabled = isToday;
+}
+
+/* ---------- 数据 ---------- */
+
+async function load(day) {
+  const query = day ? `?day=${day}` : '';
+  let data;
+  try {
+    data = await api(`/api/state${query}`);
+  } catch (err) {
+    if (err instanceof AuthError) return;
+    toast(err.message);
+    return;
+  }
+
+  state.day = data.day;
+  state.today = data.today;
+  $('app').hidden = false;
+  hideOverlay();
+  renderHeader(data.day, data.today);
+  renderStream(data);
+
+  if (!data.configured) {
+    toast('服务器还没配好模型密钥。', 5000);
+  }
+
+  if (data.onboarding && !data.onboarding.done) {
+    showOnboarding(data.onboarding);
+  }
+}
+
+async function boot() {
+  let me;
+  try {
+    me = await api('/api/me');
+  } catch (err) {
+    if (err instanceof AuthError) return;
+    showLogin('连不上服务器。');
+    return;
+  }
+  if (!me.ok) {
+    showLogin();
+    return;
+  }
+  await load(null);
+}
+
+/* ---------- 动作 ---------- */
+
+function setBusy(busy) {
+  state.busy = busy;
+  $('save').disabled = busy;
+  $('askbtn').disabled = busy;
+}
+
+async function remember() {
+  const text = $('input').value.trim();
+  if (!text) { toast('还没写什么。'); return; }
+  setBusy(true);
+  try {
+    await api('/api/entries', { method: 'POST', body: JSON.stringify({ text }) });
+    $('input').value = '';
+    autosize($('input'));
+    await load(state.day);
+  } catch (err) {
+    if (!(err instanceof AuthError)) toast(err.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function askIt() {
+  const text = $('input').value.trim();
+  if (!text) { toast('想问什么？先写一句。'); return; }
+  setBusy(true);
+  try {
+    await api('/api/entries', { method: 'POST', body: JSON.stringify({ text }) });
+    $('input').value = '';
+    autosize($('input'));
+    const result = await api('/api/ask', { method: 'POST', body: JSON.stringify({ text }) });
+    await load(state.day);
+    toast(result.reply ? '它答了。' : '它没说什么。');
+  } catch (err) {
+    if (!(err instanceof AuthError)) {
+      // 问题已经记下了，只是回答失败 —— 说清楚，别让人以为白写了
+      toast(`${err.message}（你的问题已经记下了）`, 4200);
+      await load(state.day);
+    }
+  } finally {
+    setBusy(false);
+  }
+}
+
+/* ---------- 图片 ---------- */
+
+function compress(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('读不了这个文件。'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('这个文件不是图片。'));
+      img.onload = () => {
+        const { width, height } = img;
+        const longest = Math.max(width, height);
+        const scale = longest > MAX_EDGE ? MAX_EDGE / longest : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function sendImage(file) {
+  setBusy(true);
+  try {
+    const dataUrl = await compress(file);
+    const caption = $('input').value.trim();
+    await api('/api/entries', {
+      method: 'POST',
+      body: JSON.stringify({ caption, image: dataUrl }),
+    });
+    $('input').value = '';
+    autosize($('input'));
+    await load(state.day);
+  } catch (err) {
+    if (!(err instanceof AuthError)) toast(err.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+/* ---------- 输入框自适应 ---------- */
+
+function autosize(el) {
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 130)}px`;
+}
+
+/* ---------- 绑定 ---------- */
+
+$('prev').onclick = () => load(shiftDay(state.day, -1));
+$('next').onclick = () => { if (state.day !== state.today) load(shiftDay(state.day, 1)); };
+$('save').onclick = remember;
+$('askbtn').onclick = askIt;
+$('camera').onclick = () => $('file').click();
+$('file').onchange = (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (file) sendImage(file);
+};
+$('input').addEventListener('input', (e) => autosize(e.target));
+$('input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    remember();
+  }
+});
+
+boot();

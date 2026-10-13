@@ -1,0 +1,18 @@
+[Unit]
+Description=journal nightly close (summarize the day, detect signals)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/journal
+EnvironmentFile=/opt/journal/.env
+ExecStart=/opt/journal/.venv/bin/python /opt/journal/run_dayclose.py
+User=journal
+Group=journal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+StandardOutput=append:/var/log/journal-dayclose.log
+StandardError=append:/var/log/journal-dayclose.log
