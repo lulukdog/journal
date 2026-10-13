@@ -74,7 +74,7 @@ async def summarize_day(settings, conn: sqlite3.Connection, day: str) -> dict | 
         {"role": "system", "content": prompts.DAY_SUMMARY_SYSTEM},
         {
             "role": "user",
-            "content": memory.build_user_content(rows, settings.media_dir, max_images=3),
+            "content": memory.build_user_content(rows, settings.media_dir),
         },
     ]
     try:

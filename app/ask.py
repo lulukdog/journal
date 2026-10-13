@@ -13,7 +13,7 @@ async def answer(settings, conn: sqlite3.Connection, question: str, day: str) ->
         raise llm.LLMError("你想问什么？先说一句。")
 
     messages = memory.build_ask_messages(
-        conn, text, day, media_dir=settings.media_dir, max_images=2
+        conn, text, day, media_dir=settings.media_dir
     )
     reply = await llm.chat_with_images(
         settings,

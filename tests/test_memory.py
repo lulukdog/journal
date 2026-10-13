@@ -102,7 +102,7 @@ def test_entries_text_only_mentions_the_image(conn, media_dir):
 def test_build_user_content_attaches_real_images(conn, media_dir):
     _add_image(conn, media_dir, caption="窗外")
     rows = entries_mod.list_by_day(conn, "2026-10-13")
-    content = memory.build_user_content(rows, media_dir, max_images=3)
+    content = memory.build_user_content(rows, media_dir)
 
     assert isinstance(content, list), "有图就该是 content 数组"
     assert content[0]["type"] == "text"
@@ -111,13 +111,13 @@ def test_build_user_content_attaches_real_images(conn, media_dir):
     assert urls[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
 
 
-def test_build_user_content_limits_images(conn, media_dir):
-    """图片按块计费，不能一天十张全塞进去。"""
+def test_build_user_content_sends_every_image(conn, media_dir):
+    """不限量：漏掉一张的代价比多花几分钱大。"""
     for i in range(5):
         _add_image(conn, media_dir, hour=10 + i)
     rows = entries_mod.list_by_day(conn, "2026-10-13")
-    content = memory.build_user_content(rows, media_dir, max_images=2)
-    assert sum(1 for p in content if p["type"] == "image_url") == 2
+    content = memory.build_user_content(rows, media_dir)
+    assert sum(1 for p in content if p["type"] == "image_url") == 5
 
 
 def test_build_user_content_stays_text_without_images(conn, media_dir):
@@ -145,7 +145,7 @@ def test_ask_keeps_question_plain_when_no_images(conn):
 def test_ask_attaches_images_to_the_question(conn, media_dir):
     _add_image(conn, media_dir, caption="窗外")
     messages = memory.build_ask_messages(
-        conn, "这张图里是什么", "2026-10-13", media_dir=media_dir, max_images=2
+        conn, "这张图里是什么", "2026-10-13", media_dir=media_dir
     )
     content = messages[-1]["content"]
     assert messages[-1]["role"] == "user"

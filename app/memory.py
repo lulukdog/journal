@@ -138,18 +138,16 @@ def entries_text(rows: list[sqlite3.Row]) -> str:
 def build_user_content(
     rows: list[sqlite3.Row],
     media_dir: Path | str | None = None,
-    max_images: int = 3,
 ):
     """把一天的记录变成能发给模型的内容。
 
-    有图且允许带图时返回 OpenAI 兼容的 content 数组（文字 + image_url），
-    否则返回纯字符串。
+    有图时返回 OpenAI 兼容的 content 数组（文字 + image_url），否则返回纯字符串。
 
     图片必须真的发过去 —— 否则模型只知道「这里有一张图」，照片白拍了。
-    但要限量，因为图片按块计费。
+    不限量：每天的图片数量本来就不大，而漏掉一张的代价比多花几分钱大。
     """
     text = entries_text(rows)
-    parts = _image_parts(rows, media_dir, max_images)
+    parts = _image_parts(rows, media_dir)
     if not parts:
         return text
     return [{"type": "text", "text": text}] + parts
@@ -158,15 +156,13 @@ def build_user_content(
 def _image_parts(
     rows: list[sqlite3.Row],
     media_dir: Path | str | None,
-    max_images: int,
 ) -> list[dict]:
-    if media_dir is None or max_images <= 0:
+    if media_dir is None:
         return []
-    candidates = [r for r in rows if r["kind"] == "image" and r["image_path"]][
-        -max_images:
-    ]
     out: list[dict] = []
-    for row in candidates:
+    for row in rows:
+        if row["kind"] != "image" or not row["image_path"]:
+            continue
         path = Path(media_dir) / row["image_path"]
         if not path.is_file():
             continue
@@ -190,7 +186,6 @@ def build_ask_messages(
     *,
     entry_limit: int = ENTRY_LIMIT,
     media_dir: Path | str | None = None,
-    max_images: int = 2,
 ) -> list[dict]:
     """组装「问它」的上下文。entries 段严格限量。"""
     hits = search_entries(conn, question, limit=entry_limit)
@@ -215,7 +210,7 @@ def build_ask_messages(
         f"{recent_utterances(conn, day)}\n"
     )
 
-    body = _question_with_images(question, hits, media_dir, max_images)
+    body = _question_with_images(question, hits, media_dir)
     return [
         {"role": "system", "content": prompts.ASK_SYSTEM},
         {"role": "system", "content": context},
@@ -227,13 +222,12 @@ def _question_with_images(
     question: str,
     rows: list[sqlite3.Row],
     media_dir: Path | str | None,
-    max_images: int,
 ):
     """问题本体不变，图片附在同一个 user 消息里。
 
     没图片时返回纯字符串，这样上层拿到的东西和以前一模一样。
     """
-    parts = _image_parts(rows, media_dir, max_images)
+    parts = _image_parts(rows, media_dir)
     if not parts:
         return question
     return [{"type": "text", "text": question}] + parts

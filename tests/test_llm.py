@@ -199,9 +199,9 @@ async def test_chat_without_api_key_fails_fast():
     assert "密钥" in str(exc.value)
 
 
-# ---------- 图片降级 ----------
-# 不是每个模型都能看图（deepseek-v4-pro 就不能）。
-# 与其让人维护一张「哪个模型能看图」的表，不如让它自己退。
+# ---------- chat_with_images ----------
+# 刻意不做「模型不收图片就去掉图片重试」的降级。
+# 静默降级是最坏的 —— 模型哪天开始读不懂你的照片，你永远发现不了。宁可报错。
 
 
 def _with_image(text: str) -> dict:
@@ -214,66 +214,50 @@ def _with_image(text: str) -> dict:
     }
 
 
-def test_strip_images_returns_none_without_images():
-    assert llm.strip_images([{"role": "user", "content": "纯文字"}]) is None
-
-
-def test_has_images():
-    assert llm.has_images([{"role": "user", "content": "纯文字"}]) is False
-    assert llm.has_images([_with_image("看这个")]) is True
-
-
-def test_strip_images_keeps_the_text():
-    assert llm.strip_images([_with_image("看这个")]) == [
-        {"role": "user", "content": "看这个"}
-    ]
-
-
-def test_strip_images_leaves_plain_messages_alone():
-    messages = [{"role": "system", "content": "系统"}, _with_image("看图")]
-    out = llm.strip_images(messages)
-    assert out[0] == {"role": "system", "content": "系统"}
-
-
-@pytest.mark.asyncio
-async def test_chat_with_images_degrades_when_model_cannot_see(stub_transport):
-    seen: list[bool] = []
-
+def _records_whether_images_were_sent(seen: list, response: httpx.Response):
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         content = payload["messages"][-1]["content"]
-        had = isinstance(content, list) and any(
-            part["type"] == "image_url" for part in content
+        seen.append(
+            isinstance(content, list)
+            and any(part["type"] == "image_url" for part in content)
         )
-        seen.append(had)
-        if had:
-            return httpx.Response(400, text="model does not support image input")
-        return httpx.Response(
-            200,
-            json={
-                "choices": [{"message": {"content": "看到了"}, "finish_reason": "stop"}]
-            },
-        )
+        return response
 
-    stub_transport["install"](httpx.MockTransport(handler))
-    out = await llm.chat_with_images(StubSettings(), [_with_image("看这张")])
-
-    assert out == "看到了"
-    assert seen == [True, False], "应当先带图试、失败后去掉图重试"
+    return httpx.MockTransport(handler)
 
 
 @pytest.mark.asyncio
-async def test_chat_with_images_does_not_retry_without_images(stub_transport):
-    """没图的请求失败了就是真失败，不该白白重试。"""
-    calls: list[int] = []
-
-    def handler(request):
-        calls.append(1)
-        return httpx.Response(400, text="bad request")
-
-    stub_transport["install"](httpx.MockTransport(handler))
-    with pytest.raises(llm.LLMError):
-        await llm.chat_with_images(
-            StubSettings(), [{"role": "user", "content": "纯文字"}]
+async def test_chat_with_images_passes_them_through(stub_transport):
+    seen: list = []
+    stub_transport["install"](
+        _records_whether_images_were_sent(
+            seen,
+            httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"content": "看到了"}, "finish_reason": "stop"}
+                    ]
+                },
+            ),
         )
-    assert len(calls) == 1
+    )
+    out = await llm.chat_with_images(StubSettings(), [_with_image("看这张")])
+
+    assert out == "看到了"
+    assert seen == [True], "图片必须原样发出去"
+
+
+@pytest.mark.asyncio
+async def test_chat_with_images_never_silently_drops_them(stub_transport):
+    seen: list = []
+    stub_transport["install"](
+        _records_whether_images_were_sent(
+            seen, httpx.Response(400, text="model does not support image input")
+        )
+    )
+    with pytest.raises(llm.LLMError):
+        await llm.chat_with_images(StubSettings(), [_with_image("看这张")])
+
+    assert seen == [True], "只该试一次，不能去掉图片偷偷重试"
