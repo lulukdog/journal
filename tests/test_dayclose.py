@@ -28,10 +28,10 @@ def patch_llm(monkeypatch):
 
     async def fake_chat(settings, messages, **kwargs):
         system = messages[0]["content"]
-        if "facts" in system:
+        if '"facts":' in system and '"mood":' not in system:
             calls["facts"] += 1
             return '{"facts": [{"key": "current_job", "value": "在做 AI 产品", "category": "work"}]}'
-        if "mood" in system:
+        if '"mood":' in system:
             calls["summary"] += 1
             return (
                 '{"mood": -1, "mood_label": "有点钝", '

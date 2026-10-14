@@ -218,6 +218,7 @@ function cardHtml(card, day) {
       </div>`
       + (card.mood_label ? `<div class="headline">「${escapeHtml(card.mood_label)}」</div>` : '')
       + (card.headline ? `<div class="keywords">${escapeHtml(card.headline)}</div>` : '')
+      + summaryHtml(card.summary)
       + ((card.keywords && card.keywords.length)
         ? `<div class="keywords">${card.keywords.map((k) => `<span>${escapeHtml(k)}</span>`).join('')}</div>`
         : '');
@@ -232,6 +233,24 @@ function cardHtml(card, day) {
           <span class="count">${parts.join(' · ')}</span></h2>
       ${body}
     </div>`;
+}
+
+function summaryHtml(summary) {
+  if (!summary) return '';
+  const section = (title, value, cls = '') => value
+    ? `<div class="summary-section ${cls}"><b>${title}</b><div>${escapeHtml(value)}</div></div>`
+    : '';
+  const list = (title, values, cls = '') => Array.isArray(values) && values.length
+    ? `<div class="summary-section ${cls}"><b>${title}</b><ul>${values.map(v => `<li>${escapeHtml(v)}</li>`).join('')}</ul></div>`
+    : '';
+  return `<div class="summary-detail">
+    ${section('今天的主线', summary.overview, 'overview')}
+    ${list('发生了什么', summary.facts)}
+    ${section('卡点', summary.tension, 'tension')}
+    ${section('暂时判断', summary.hypothesis, 'hypothesis')}
+    ${section('下一步', summary.next_step, 'next-step')}
+    ${list('还没解决', summary.open_loop, 'open-loop')}
+  </div>`;
 }
 
 function escapeHtml(text) {
@@ -399,10 +418,17 @@ async function remember() {
   if (!text) { toast('还没写什么。'); return; }
   setBusy(true);
   try {
-    await api('/api/entries', { method: 'POST', body: JSON.stringify({ text }) });
+    const result = await api('/api/capture', { method: 'POST', body: JSON.stringify({ text }) });
     $('input').value = '';
     autosize($('input'));
     await load(state.day, true);
+    if (result.intent === 'question' && result.reply) {
+      toast('我把它当成问题回答了。');
+    } else if (result.error) {
+      toast(`已经记下了，但回答失败：${result.error}`, 5000);
+    } else {
+      toast('记下了。');
+    }
   } catch (err) {
     if (!(err instanceof AuthError)) toast(err.message);
   } finally {

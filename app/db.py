@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS days (
     mood_label  TEXT,
     headline    TEXT,
     keywords    TEXT,
+    summary     TEXT,
     finalized   INTEGER NOT NULL DEFAULT 0,
     updated_at  TEXT
 );
@@ -97,6 +98,10 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # 兼容已经存在的生产库；CREATE TABLE 不会给旧表补列。
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(days)")}
+    if "summary" not in columns:
+        conn.execute("ALTER TABLE days ADD COLUMN summary TEXT")
     conn.commit()
 
 

@@ -74,6 +74,7 @@ def save_summary(
     mood_label: str | None,
     headline: str | None,
     keywords: list[str] | None,
+    details: dict | None = None,
 ) -> None:
     """写入卡片摘要。不改动 entry_count / image_count。"""
     now = datetime.now().isoformat(timespec="seconds")
@@ -81,7 +82,7 @@ def save_summary(
     conn.execute(
         """
         UPDATE days
-           SET mood = ?, mood_label = ?, headline = ?, keywords = ?,
+           SET mood = ?, mood_label = ?, headline = ?, keywords = ?, summary = ?,
                finalized = 1, updated_at = ?
          WHERE day = ?
         """,
@@ -90,6 +91,7 @@ def save_summary(
             mood_label,
             headline,
             json.dumps(keywords or [], ensure_ascii=False),
+            json.dumps(details, ensure_ascii=False) if details else None,
             now,
             day,
         ),
@@ -106,6 +108,10 @@ def as_dict(row: sqlite3.Row | None) -> dict | None:
         out["keywords"] = json.loads(raw) if raw else []
     except (TypeError, ValueError):
         out["keywords"] = []
+    try:
+        out["summary"] = json.loads(out.get("summary")) if out.get("summary") else None
+    except (TypeError, ValueError):
+        out["summary"] = None
     return out
 
 

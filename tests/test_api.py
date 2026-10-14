@@ -7,7 +7,7 @@ import base64
 import pytest
 from fastapi.testclient import TestClient
 
-from app import llm
+from app import llm, router
 from app import main as main_mod
 from tests.conftest import TINY_PNG_B64
 
@@ -154,6 +154,41 @@ def test_bad_image_gives_400_not_500(authed):
 
 def test_media_path_traversal_blocked(authed):
     assert authed.get("/media/../../etc/passwd").status_code in (403, 404)
+
+
+# ---------- 智能记录 ----------
+
+
+def test_capture_records_plain_statement_without_reply(authed, monkeypatch):
+    async def record(settings, conn, text, day):
+        return router.RouteDecision("record", "只是记录")
+
+    monkeypatch.setattr(router, "classify", record)
+    response = authed.post("/api/capture", json={"text": "今天下雨了"})
+    assert response.status_code == 200
+    assert response.json()["intent"] == "record"
+    assert response.json()["reply"] is None
+    state = authed.get(f"/api/state?day={response.json()['day']}").json()
+    assert any(e["content"] == "今天下雨了" for e in state["entries"])
+    assert state["utterances"] == []
+
+
+def test_capture_saves_question_then_answers(authed, monkeypatch):
+    async def question(settings, conn, text, day):
+        return router.RouteDecision("question", "在求判断")
+
+    async def reply(settings, conn, text, day):
+        return "先别急着决定，先看外面的行情。"
+
+    monkeypatch.setattr(router, "classify", question)
+    monkeypatch.setattr(main_mod.ask_mod, "answer", reply)
+    response = authed.post("/api/capture", json={"text": "我是不是该换工作？"})
+    assert response.status_code == 200
+    assert response.json()["intent"] == "question"
+    assert response.json()["reply"]
+    state = authed.get(f"/api/state?day={response.json()['day']}").json()
+    assert state["entries"][-1]["content"] == "我是不是该换工作？"
+    assert response.json()["reply"] == "先别急着决定，先看外面的行情。"
 
 
 # ---------- 问它 ----------
