@@ -259,6 +259,43 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
+// 模型回答允许一小部分 Markdown，但绝不把模型输出直接当 HTML。
+// 先完整转义，再只把安全的格式标记转换成标签。
+function renderMarkdown(text) {
+  const source = String(text == null ? '' : text).replace(/\r\n?/g, '\n');
+  const lines = source.split('\n');
+  const blocks = [];
+  let list = null;
+  const closeList = () => {
+    if (list) { blocks.push(`<ul>${list.join('')}</ul>`); list = null; }
+  };
+  const inline = (value) => {
+    let out = escapeHtml(value);
+    out = out.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    out = out.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    out = out.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
+    out = out.replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, '$1<em>$2</em>');
+    out = out.replace(/(^|[\s(])_([^_\n]+)_(?=$|[\s).,!?:;])/g, '$1<em>$2</em>');
+    return out;
+  };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { closeList(); continue; }
+    const heading = line.match(/^#{1,3}\s+(.+)$/);
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      if (!list) list = [];
+      list.push(`<li>${inline(bullet[1])}</li>`);
+    } else if (heading) {
+      closeList(); blocks.push(`<h3>${inline(heading[1])}</h3>`);
+    } else {
+      closeList(); blocks.push(`<p>${inline(line)}</p>`);
+    }
+  }
+  closeList();
+  return blocks.join('');
+}
+
 function renderStream(data, scrollToBottom) {
   const items = [];
   for (const entry of data.entries) {
@@ -290,7 +327,7 @@ function renderStream(data, scrollToBottom) {
     } else {
       const s = item.said;
       const marker = s.trigger && s.trigger !== 'ask' && s.trigger !== 'onboarding';
-      html += `<div class="row theirs"><div class="bubble ${marker ? 'marker' : ''}">${escapeHtml(s.content)}<span class="stamp">${formatTime(s.ts)}</span></div></div>`;
+      html += `<div class="row theirs"><div class="bubble markdown ${marker ? 'marker' : ''}">${renderMarkdown(s.content)}<span class="stamp">${formatTime(s.ts)}</span></div></div>`;
     }
   }
 
