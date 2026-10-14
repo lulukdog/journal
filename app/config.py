@@ -13,7 +13,9 @@ DEFAULT_BASE_URL = "https://api.deepseek.com"
 # 默认两个都用 V4.1：图片要真的发给模型才有意义，
 # 而「问它」和每日卡片都会把当天照片一并送过去。
 DEFAULT_MODEL = "deepseek-flash"
-DEFAULT_MODEL_DEEP = "deepseek-flash"
+DEFAULT_MODEL_DEEP = "deepseek-v4-flash"
+DEFAULT_DSH_HOME = "/var/lib/journal/dsh-home"
+DEFAULT_DSH_PROFILE = "sdk-minimal"
 DEFAULT_DB_PATH = "/var/lib/journal/journal.db"
 DEFAULT_MEDIA_DIR = "/var/lib/journal/media"
 DEFAULT_DAY_BOUNDARY_HOUR = 4
@@ -27,6 +29,9 @@ class Settings:
     base_url: str
     model: str
     model_deep: str
+    dsh_home: Path
+    dsh_profile: str
+    use_dsh: bool
     app_token: str
     day_boundary_hour: int
 
@@ -69,6 +74,8 @@ def load_settings(env_file: Path | str | None = None) -> Settings:
     if not 0 <= boundary <= 23:
         boundary = DEFAULT_DAY_BOUNDARY_HOUR
 
+    use_dsh = get("JOURNAL_USE_DSH", "1").lower() not in {"0", "false", "no"}
+
     return Settings(
         db_path=Path(get("JOURNAL_DB_PATH", DEFAULT_DB_PATH)),
         media_dir=Path(get("JOURNAL_MEDIA_DIR", DEFAULT_MEDIA_DIR)),
@@ -76,6 +83,9 @@ def load_settings(env_file: Path | str | None = None) -> Settings:
         base_url=get("JOURNAL_LLM_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
         model=get("JOURNAL_MODEL", DEFAULT_MODEL),
         model_deep=get("JOURNAL_MODEL_DEEP", DEFAULT_MODEL_DEEP),
+        dsh_home=Path(get("JOURNAL_DSH_HOME", DEFAULT_DSH_HOME)),
+        dsh_profile=get("JOURNAL_DSH_PROFILE", DEFAULT_DSH_PROFILE),
+        use_dsh=use_dsh,
         app_token=get("JOURNAL_APP_TOKEN"),
         day_boundary_hour=boundary,
     )

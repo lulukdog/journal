@@ -10,6 +10,8 @@ import base64
 import io
 import json
 import re
+import asyncio
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -102,6 +104,61 @@ def _content_of(body: dict) -> tuple[str, str | None]:
     return (content if isinstance(content, str) else ""), choice.get("finish_reason")
 
 
+def _harness_input(messages: list[dict]) -> str | list[dict]:
+    """把现有 OpenAI messages 转成 DSH 的 prompt 内容块。"""
+    blocks = []
+    for message in messages:
+        role = message.get("role", "user")
+        content = message.get("content", "")
+        if isinstance(content, str):
+            blocks.append({"type": "text", "text": f"[{role}]\n{content}"})
+            continue
+        for part in content:
+            if part.get("type") == "text":
+                blocks.append({"type": "text", "text": f"[{role}]\n{part.get('text', '')}"})
+            elif part.get("type") == "image_url":
+                url = part.get("image_url", {}).get("url", "")
+                match = re.match(r"data:([^;]+);base64,(.+)", url, re.S)
+                if match:
+                    blocks.append({
+                        "type": "image",
+                        "data": match.group(2),
+                        "mimeType": match.group(1),
+                    })
+    return blocks[0]["text"] if len(blocks) == 1 and blocks[0]["type"] == "text" else blocks
+
+
+async def _chat_dsh(settings, messages: list[dict], model: str, max_tokens: int, timeout: float) -> str:
+    """通过 DeepSeek Harness Python SDK 调用 dsh --profile sdk。"""
+    def run():
+        try:
+            from deepseek_harness import DeepSeekHarness
+        except ImportError as exc:
+            raise LLMError("服务器没有安装 DeepSeek Harness SDK。") from exc
+        try:
+            with DeepSeekHarness(
+                provider="deepseek-official",
+                model=model,
+                max_tokens=max_tokens,
+                base_url=settings.base_url,
+                api_key=settings.api_key,
+                dsh_home=str(settings.dsh_home),
+                profile=settings.dsh_profile,
+                request_timeout_seconds=timeout,
+            ) as harness:
+                # 每次调用使用独立 session；上下文已由日记自己组装，不能让 Harness
+                # 把上一次请求的隐式会话也混进来。
+                result = harness.run(
+                    _harness_input(messages),
+                    session_id=f"journal-{uuid.uuid4().hex}",
+                )
+                return result.final_response or ""
+        except Exception as exc:
+            raise LLMError(f"DeepSeek Harness 调用失败：{exc}") from exc
+
+    return await asyncio.to_thread(run)
+
+
 async def chat(
     settings,
     messages: list[dict],
@@ -119,6 +176,9 @@ async def chat(
     """
     if not settings.api_key:
         raise LLMError("服务器上没有配置模型密钥，先看看 .env。")
+
+    if getattr(settings, "use_dsh", False):
+        return await _chat_dsh(settings, messages, model or settings.model, max_tokens, timeout)
 
     budget = max_tokens
     for attempt in range(3):
