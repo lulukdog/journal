@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import ask as ask_mod
-from . import auth, config, db, llm, memory, onboarding, router
+from . import auth, config, db, llm, memory, onboarding
 from . import days as days_mod
 from . import entries as entries_mod
 
@@ -80,10 +80,6 @@ class EntryBody(BaseModel):
 
 
 class AskBody(BaseModel):
-    text: str = ""
-
-
-class CaptureBody(BaseModel):
     text: str = ""
 
 
@@ -194,33 +190,7 @@ async def create_entry(request: Request, body: EntryBody):
     return {"id": entry_id, "day": day}
 
 
-# ---------- 智能记录 / 问它 ----------
-
-
-@app.post("/api/capture", dependencies=[Depends(auth.require_auth)])
-async def capture(request: Request, body: CaptureBody):
-    """先保存原文，再判断是否需要回答；模型失败也不丢记录。"""
-    conn = get_conn(request)
-    settings = get_settings(request)
-    text = (body.text or "").strip()
-    if not text:
-        raise HTTPException(400, "还没写什么。")
-    now = datetime.now()
-    entry_id = entries_mod.create_text(
-        conn, text, ts=now, boundary_hour=settings.day_boundary_hour
-    )
-    day = days_mod.day_of(now, settings.day_boundary_hour)
-    decision = await router.classify(settings, conn, text, day)
-    if decision.intent != "question":
-        return {"id": entry_id, "day": day, "intent": "record", "reply": None}
-    try:
-        reply = await ask_mod.answer(settings, conn, text, day)
-    except llm.LLMError as exc:
-        return {
-            "id": entry_id, "day": day, "intent": "question", "reply": None,
-            "error": str(exc),
-        }
-    return {"id": entry_id, "day": day, "intent": "question", "reply": reply}
+# ---------- 问它 ----------
 
 
 @app.post("/api/ask", dependencies=[Depends(auth.require_auth)])

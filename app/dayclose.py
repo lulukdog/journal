@@ -98,21 +98,6 @@ async def summarize_day(settings, conn: sqlite3.Connection, day: str) -> dict | 
         keywords = []
     keywords = [str(k)[:20] for k in keywords][:5]
 
-    details = data.get("summary")
-    if not isinstance(details, dict):
-        details = None
-    else:
-        details = {
-            "overview": str(details.get("overview") or "")[:120],
-            "facts": [str(x)[:120] for x in details.get("facts", []) if x][:4]
-            if isinstance(details.get("facts"), list) else [],
-            "tension": str(details.get("tension") or "")[:160],
-            "hypothesis": str(details.get("hypothesis") or "")[:160],
-            "next_step": str(details.get("next_step") or "")[:120],
-            "open_loop": [str(x)[:120] for x in details.get("open_loop", []) if x][:3]
-            if isinstance(details.get("open_loop"), list) else [],
-        }
-
     days_mod.save_summary(
         conn,
         day,
@@ -120,7 +105,6 @@ async def summarize_day(settings, conn: sqlite3.Connection, day: str) -> dict | 
         mood_label=(str(data.get("mood_label") or "")[:40] or None),
         headline=(str(data.get("headline") or "")[:80] or None),
         keywords=keywords,
-        details=details,
     )
     return data
 

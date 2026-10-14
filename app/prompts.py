@@ -27,17 +27,8 @@ COMMON_RULES = """\
 - 中文。
 """
 
-DSH_SYSTEM = """\
-回答前在内部按 DSH 组织：
-- Data：只使用资料中明确的事实、数字和原话。
-- State：说明这些事实当前形成的处境或矛盾。
-- Hypothesis：给出带保留的暂时判断；如果证据不够，先问一个问题。
-不要输出思考过程或隐藏推理链，只输出最终回答。
-"""
-
 ASK_SYSTEM = (
     COMMON_RULES
-    + DSH_SYSTEM
     + """
 现在他明确问了你一个问题。你必须回答，不能只记录。
 
@@ -61,19 +52,8 @@ DAY_SUMMARY_SYSTEM = """\
   "mood": -2 到 2 之间的整数,
   "mood_label": "一句话，用他自己的语气描述今天，不超过 12 个字",
   "headline": "今天发生了什么，一句话，不超过 25 个字",
-  "keywords": ["3 到 5 个关键词"],
-  "summary": {
-    "overview": "今天的主线，不超过 60 字",
-    "facts": ["明确发生的事实，最多 4 条"],
-    "tension": "当前卡点或矛盾；没有就留空",
-    "hypothesis": "基于事实的暂时判断；没有把握就留空",
-    "next_step": "最多一个具体动作；没有就留空",
-    "open_loop": ["尚未解决的问题，最多 3 条"]
-  }
+  "keywords": ["3 到 5 个关键词"]
 }
-
-DSH 规则：summary.facts 只能写 Data；summary.tension 写 State；summary.hypothesis 写 Hypothesis。
-不要输出思考过程，不要把猜测写成事实。
 
 规矩：
 - mood 是粗略的天气，不是评估。今天平静偏累是 -1，明显难受是 -2，
