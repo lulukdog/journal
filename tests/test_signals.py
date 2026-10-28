@@ -130,6 +130,27 @@ def test_risk_quiet_on_ordinary_complaint(conn):
     assert signals.risk(conn, "2026-10-13") is None
 
 
+def test_checkin_hears_today_only(conn):
+    _entry(conn, "今天真的好累", "2026-10-13")
+    found = signals.checkin(conn, "2026-10-13")
+    assert found is not None
+    assert found.type == "checkin"
+    assert found.payload["tone"] == "tired"
+    assert "累" in found.payload["heard"]
+    assert "score" not in found.payload
+    assert found.payload["checkin"].endswith("？")
+
+
+def test_checkin_quiet_without_feeling(conn):
+    _entry(conn, "中午吃了面条", "2026-10-13")
+    assert signals.checkin(conn, "2026-10-13") is None
+
+
+def test_checkin_ignores_older_days(conn):
+    _entry(conn, "昨天好累", "2026-10-12")
+    assert signals.checkin(conn, "2026-10-13") is None
+
+
 def test_detect_puts_risk_first(conn):
     _entry(conn, "有时候觉得活着没意思", "2026-10-13")
     found = signals.detect(conn, "2026-10-13")

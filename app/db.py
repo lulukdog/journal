@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS days (
     mood_label  TEXT,
     headline    TEXT,
     keywords    TEXT,
+    companion   TEXT,
     finalized   INTEGER NOT NULL DEFAULT 0,
     updated_at  TEXT
 );
@@ -95,8 +96,16 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """已有库补列。CREATE TABLE IF NOT EXISTS 不会给旧表加字段。"""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(days)")}
+    if cols and "companion" not in cols:
+        conn.execute("ALTER TABLE days ADD COLUMN companion TEXT")
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
 
 

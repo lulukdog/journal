@@ -37,8 +37,20 @@
 | upcoming | 最近提到过时间点（第一版没推送，这条基本没用） |
 | silence | 连续 3 天没说话（有上限和熔断） |
 | risk | 明确的极端表达 |
+| checkin | 当天的话里听得出累、压力、难过、孤单、紧张或高兴 |
 
 每条触发都写进 `events` 表 —— 事后能查「它为什么在那天找我」。
+
+### 情绪上它怎么陪
+
+默认仍然闭嘴。记一笔不会弹出一段分析。
+
+听得出语气时，它只做两件很短的事：
+
+- **日卡片**上留一句陪伴（`card.companion`，白天还没收口时先放在 `mood.line`）。累了就接住，高兴了就跟着高兴一下。不建议，不上课。
+- **收口**时若 `checkin` 成立，再问一句轻的（`utterances`，`trigger` 为 `signal:checkin`）。先问，再判断。同一天不重复说。若同时有 `risk`，只留那句更重的陪伴，不再叠一句日常问候。
+
+`card.mood`（-2 到 2）仍是天气条，**不是**抑郁评分。接口里的 `mood` 对象也没有分数字段。极端表达只回应「我在，去找一个你信得过的人」，不做诊断。
 
 **它开口时先问，再判断。** 它可以说「你这几天提了四次累」，不会说「你状态不好」。猜错了，问一句的代价只是一句多余的关心。
 
@@ -57,11 +69,12 @@ app/
   memory.py      记忆分层与上下文组装
   llm.py         零一万物 / OpenAI 兼容客户端
   prompts.py     系统提示词
-  signals.py     六条信号
+  companion.py   听语气、写一句短陪伴（无评分）
+  signals.py     信号（含当天的 checkin）
   dayclose.py    每晚收口
   onboarding.py  引导访谈
   static/        单页前端（原生 JS，无构建）
-tests/           107 个测试
+tests/           pytest（含陪伴与 Bearer）
 deploy/          systemd unit + 部署脚本
 ```
 
@@ -104,6 +117,34 @@ ssh journal-server 'python3 /opt/journal/deploy/token.py set 我的口令'
 
 改口令会重启服务，**所有设备需要重新登录一次**。因为 cookie 里存的就是口令本身——
 没有用户表、没有数据库，简单到不会出错。
+
+### Android 用同一口令
+
+配套应用是 [diary-android](https://github.com/lulukdog/diary-android)。仍是这一个 `JOURNAL_APP_TOKEN`，不要另开账号。网页继续 `POST /api/login` 换 cookie；原生客户端每个请求带：
+
+```http
+Authorization: Bearer <JOURNAL_APP_TOKEN>
+```
+
+明文 HTTP 是已知取舍，不要为了 Android 去强制 HTTPS。服务根地址形如 `http://<服务器>:10002`。
+
+| 用途 | 方法 | 路径 |
+|---|---|---|
+| 这天的卡片、记录、它说过的话、心情回声 | GET | `/api/state?day=YYYY-MM-DD` |
+| 记一笔（只落库，不立刻说话） | POST | `/api/entries` |
+| 明确问它（必须回答，情绪先接住） | POST | `/api/ask` |
+| 图片 | GET | `/media/<image_path>` |
+| 访谈 | GET/POST | `/api/onboarding`、`/api/onboarding/answer` |
+| 口令是否有效 | GET | `/api/me` |
+
+一天的边界是 **04:00 Asia/Shanghai**。`/api/state` 里 Android 可以直接画：
+
+- `card.companion`：收口后的陪伴句。`card.mood` / `mood_label` / `headline` / `keywords` 仍是原来的卡片。
+- `mood`：`{tone, line, heard, source}`。`line` 为空就什么都别显示。`tone` 只是 `tired` / `stressed` / `sad` / `lonely` / `anxious` / `happy` / `heavy` / `null`，`heavy` 表示出现了极端表达。没有评分。
+- `utterances[].content`：它开口说的话。`trigger` 为 `ask`（回答）、`signal:checkin`（轻问一句）或其它 `signal:*`。
+- `entries[].media_url`：有图时是 `/media/...`，和 `image_path` 一起给。
+
+`POST /api/ask` 返回 `{reply, mood}`。`reply` 是完整回答；只想展示一句时用 `mood.line`。
 
 ## 常用命令
 

@@ -182,10 +182,127 @@ def test_guard_catches_chinese_wrong_count():
     assert "4 次" in out
 
 
+def test_guard_replaces_lecture():
+    signal = signals.Signal("repeat", {"top": "累", "count": 4})
+    out = dayclose._guard_voice(signal, "你应该好好休息，你这几天提了 4 次累")
+    assert "应该" not in out
+    assert "4 次" in out
+    assert "抑郁" not in out
+
+
 def test_guard_silence_gap():
     signal = signals.Signal("silence", {"gap_days": 3})
     out = dayclose._guard_count(signal, "你 5 天没说话了")
     assert "3 天" in out
+
+
+@pytest.mark.asyncio
+async def test_dayclose_writes_companion_without_a_score(fake_settings, conn, patch_llm):
+    """模型没写陪伴句时，用听出来的那句。不是评分。"""
+    _seed_day(conn)
+    await dayclose.run(fake_settings, conn, "2026-10-13")
+    row = conn.execute("SELECT companion FROM days WHERE day = '2026-10-13'").fetchone()
+    assert row["companion"]
+    assert "抑郁" not in row["companion"]
+    assert "你应该" not in row["companion"]
+
+    said = conn.execute(
+        "SELECT content, trigger FROM utterances WHERE trigger = 'signal:checkin'"
+    ).fetchone()
+    assert said is not None
+    assert said["content"].endswith("？")
+    payload = conn.execute(
+        "SELECT payload FROM events WHERE signal_type = 'checkin'"
+    ).fetchone()["payload"]
+    assert "score" not in payload
+
+
+@pytest.mark.asyncio
+async def test_dayclose_keeps_a_warm_model_line(fake_settings, conn, monkeypatch):
+    _seed_day(conn)
+
+    async def fake_chat(settings, messages, **kwargs):
+        system = messages[0]["content"]
+        if "facts" in system:
+            return '{"facts": []}'
+        if "mood" in system:
+            return (
+                '{"mood": -1, "mood_label": "有点钝", "headline": "开了个会", '
+                '"keywords": ["累"], "companion": "先歇会儿，我在。"}'
+            )
+        return "你这几天提了 4 次累，是我读错了吗？"
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    await dayclose.run(fake_settings, conn, "2026-10-13")
+    row = conn.execute("SELECT companion FROM days WHERE day = '2026-10-13'").fetchone()
+    assert row["companion"] == "先歇会儿，我在。"
+
+
+@pytest.mark.asyncio
+async def test_dayclose_drops_clinical_model_line(fake_settings, conn, monkeypatch):
+    _seed_day(conn)
+
+    async def fake_chat(settings, messages, **kwargs):
+        system = messages[0]["content"]
+        if "facts" in system:
+            return '{"facts": []}'
+        if "mood" in system:
+            return (
+                '{"mood": -1, "mood_label": "有点钝", "headline": "开了个会", '
+                '"keywords": ["累"], "companion": "你应该调节抑郁情绪"}'
+            )
+        return "你这几天提了 4 次累，是我读错了吗？"
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    await dayclose.run(fake_settings, conn, "2026-10-13")
+    row = conn.execute("SELECT companion FROM days WHERE day = '2026-10-13'").fetchone()
+    assert "抑郁" not in row["companion"]
+    assert "应该" not in row["companion"]
+
+
+@pytest.mark.asyncio
+async def test_companion_survives_llm_outage(fake_settings, conn, monkeypatch):
+    """模型挂了也要能接住。记录照旧不标已处理。"""
+    _seed_day(conn)
+
+    async def dead_chat(settings, messages, **kwargs):
+        raise llm.LLMError("连不上模型服务")
+
+    monkeypatch.setattr(llm, "chat", dead_chat)
+    await dayclose.run(fake_settings, conn, "2026-10-13")
+    row = conn.execute("SELECT companion FROM days WHERE day = '2026-10-13'").fetchone()
+    assert row["companion"]
+    assert "累" in row["companion"] or "歇" in row["companion"]
+    assert len(entries_mod.unprocessed(conn)) == 5
+
+
+@pytest.mark.asyncio
+async def test_risk_does_not_stack_a_casual_checkin(fake_settings, conn, monkeypatch):
+    entries_mod.create_text(
+        conn,
+        "今天好累，有时候觉得活着没意思",
+        ts=datetime(2026, 10, 13, 12, 0),
+        boundary_hour=4,
+    )
+
+    async def clinical_chat(settings, messages, **kwargs):
+        return "你有抑郁倾向，你应该立刻就医。"
+
+    monkeypatch.setattr(llm, "chat", clinical_chat)
+    await dayclose.run(fake_settings, conn, "2026-10-13")
+
+    row = conn.execute("SELECT companion FROM days WHERE day = '2026-10-13'").fetchone()
+    assert row["companion"] == dayclose.companion.HEAVY_LINE
+    triggers = [
+        r["trigger"]
+        for r in conn.execute("SELECT trigger FROM utterances").fetchall()
+    ]
+    assert "signal:checkin" not in triggers
+    assert "signal:risk" in triggers
+    said = conn.execute(
+        "SELECT content FROM utterances WHERE trigger = 'signal:risk'"
+    ).fetchone()["content"]
+    assert "抑郁" not in said
 
 
 @pytest.mark.asyncio

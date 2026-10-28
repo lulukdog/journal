@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import llm, memory
+from . import companion, llm, memory
 
 
 async def answer(settings, conn: sqlite3.Connection, question: str, day: str) -> str:
@@ -15,6 +15,9 @@ async def answer(settings, conn: sqlite3.Connection, question: str, day: str) ->
     messages = memory.build_ask_messages(
         conn, text, day, media_dir=settings.media_dir
     )
+    note = companion.ask_note(text)
+    if note:
+        messages.insert(1, {"role": "system", "content": note})
     reply = await llm.chat_with_images(
         settings,
         messages,

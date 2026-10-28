@@ -97,6 +97,17 @@ def save_summary(
     conn.commit()
 
 
+def save_companion(conn: sqlite3.Connection, day: str, companion: str | None) -> None:
+    """写上卡片上那句陪伴。不改心情刻度，也不把一天标成已收口。"""
+    now = datetime.now().isoformat(timespec="seconds")
+    ensure(conn, day)
+    conn.execute(
+        "UPDATE days SET companion = ?, updated_at = ? WHERE day = ?",
+        (companion, now, day),
+    )
+    conn.commit()
+
+
 def as_dict(row: sqlite3.Row | None) -> dict | None:
     if row is None:
         return None
@@ -106,6 +117,7 @@ def as_dict(row: sqlite3.Row | None) -> dict | None:
         out["keywords"] = json.loads(raw) if raw else []
     except (TypeError, ValueError):
         out["keywords"] = []
+    out.setdefault("companion", None)
     return out
 
 
@@ -128,6 +140,7 @@ __all__ = [
     "get",
     "recent_days",
     "refresh_counts",
+    "save_companion",
     "save_summary",
     "db_mod",
 ]

@@ -14,7 +14,7 @@ import re
 import sqlite3
 from datetime import datetime
 
-from . import days as days_mod
+from . import companion, days as days_mod
 from . import entries as entries_mod
 from . import llm, memory, prompts, signals as signals_mod
 
@@ -149,9 +149,22 @@ async def extract_facts(settings, conn: sqlite3.Connection, day: str) -> int:
 async def speak_for_signal(
     settings, conn: sqlite3.Connection, day: str, signal: signals_mod.Signal
 ) -> str | None:
-    """为一条信号生成「低承诺的询问」。先问，再判断。"""
+    """为一条信号生成「低承诺的询问」。先问，再判断。
+
+    checkin 不走模型：那句问话是从他的原词来的，说错比不说更糟。
+    """
     if signals_mod.already_spoken(conn, day, signal.type):
         return None
+
+    if signal.type == "checkin":
+        text = (signal.payload.get("checkin") or "").strip()
+        if not text or companion.unsafe(text):
+            tone = signal.payload.get("tone")
+            text = companion.CHECKINS.get(tone) or ""
+        if not text:
+            return None
+        memory.record_utterance(conn, day, f"signal:{signal.type}", text)
+        return text
 
     hint = {
         "repeat": (
@@ -168,7 +181,15 @@ async def speak_for_signal(
         ),
         "upcoming": f"他提到过这些时间点：{signal.payload.get('phrases')}。",
         "silence": f"他已经 {signal.payload.get('gap_days')} 天没说话了。",
-        "risk": "他写下了一句很重的话。",
+        "risk": (
+            "他写下了一句很重的话。先陪着，不要分析，不要诊断。"
+            "如果撑不住，请他去找一个信得过的人。不要编造电话。"
+        ),
+        "checkin": (
+            f"今天能听出的语气是「{signal.payload.get('tone')}」，"
+            f"他的原词是 {signal.payload.get('heard')}。"
+            "先轻轻问一句，不要下结论。"
+        ),
     }.get(signal.type, "")
 
     context = (
@@ -192,10 +213,42 @@ async def speak_for_signal(
     if not text:
         return None
 
-    text = _guard_count(signal, text)
+    text = _guard_voice(signal, text)
 
     memory.record_utterance(conn, day, f"signal:{signal.type}", text)
     return text
+
+
+def _fallback_line(signal: signals_mod.Signal) -> str:
+    """模型说教或下诊断时，换成我们自己的一句。"""
+    if signal.type == "risk":
+        return companion.HEAVY_LINE
+    if signal.type == "repeat":
+        count = signal.payload.get("count")
+        word = signal.payload.get("top")
+        if count is not None and word:
+            return f"你这几天提了 {count} 次「{word}」，是我读错了吗？"
+    if signal.type == "silence":
+        gap = signal.payload.get("gap_days")
+        if gap is not None:
+            return f"你已经 {gap} 天没跟我说过话了。"
+    if signal.type == "dangling":
+        return "那件事后来怎样了？我可能记混了。"
+    if signal.type == "upcoming":
+        return "你之前提过一个日子。还作数吗？"
+    if signal.type == "drift":
+        return "最近和之前不太一样。是我看错了吗？"
+    if signal.type == "checkin":
+        return signal.payload.get("checkin") or "我在。想说的话我听着。"
+    return "我在。想说的话我听着。"
+
+
+def _guard_voice(signal: signals_mod.Signal, text: str) -> str:
+    """先挡住说教和诊断，再核对数字。"""
+    if companion.unsafe(text):
+        log.info("语气守卫拦下了一句：%r", text)
+        return _fallback_line(signal)
+    return _guard_count(signal, text)
 
 
 def _guard_count(signal: signals_mod.Signal, text: str) -> str:
@@ -221,8 +274,12 @@ async def run(settings, conn: sqlite3.Connection, day: str | None = None) -> dic
     day = day or days_mod.day_of(datetime.now(), settings.day_boundary_hour)
     summary: dict = {"day": day, "steps": {}}
 
+    model_line = None
     try:
-        summary["steps"]["summary"] = bool(await summarize_day(settings, conn, day))
+        summarized = await summarize_day(settings, conn, day)
+        summary["steps"]["summary"] = bool(summarized)
+        if isinstance(summarized, dict):
+            model_line = summarized.get("companion")
     except Exception as exc:  # noqa: BLE001
         log.exception("summarize 崩了")
         summary["steps"]["summary"] = f"error: {exc}"
@@ -237,8 +294,17 @@ async def run(settings, conn: sqlite3.Connection, day: str | None = None) -> dic
     signals_mod.record(conn, found, day)
     summary["steps"]["signals"] = [s.type for s in found]
 
+    card_line = companion.choose_card_line(found, model_line)
+    if card_line:
+        days_mod.save_companion(conn, day, card_line)
+    summary["steps"]["companion"] = card_line
+
+    # 已经有更重的话要说时，不再另起一句日常问候。卡片上仍留着陪伴。
+    skip_checkin = any(signal.type == "risk" for signal in found)
     spoken = []
     for signal in found:
+        if signal.type == "checkin" and skip_checkin:
+            continue
         try:
             text = await speak_for_signal(settings, conn, day, signal)
         except Exception as exc:  # noqa: BLE001
