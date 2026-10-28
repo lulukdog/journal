@@ -198,6 +198,30 @@ def silence(conn: sqlite3.Connection, day: str) -> Signal | None:
     return Signal("silence", {"gap_days": SILENCE_GAP_DAYS})
 
 
+def checkin(conn: sqlite3.Connection, day: str) -> Signal | None:
+    """今天的话里听得出累、压力、难过、孤单、紧张或高兴。
+
+    只认当天，不把前几天的旧话再算一遍。开口与否由收口决定，这里只产生可审计的事实。
+    没有分数。
+    """
+    from . import companion
+
+    rows = _entries_between(conn, day, day)
+    heard = companion.hear_rows(rows)
+    if heard is None:
+        return None
+    return Signal(
+        "checkin",
+        {
+            "tone": heard["tone"],
+            "heard": heard["heard"],
+            "mentions": heard["mentions"],
+            "line": heard["line"],
+            "checkin": heard["checkin"],
+        },
+    )
+
+
 def risk(conn: sqlite3.Connection, day: str) -> Signal | None:
     """明确的极端表达。不做诊断，只做识别，见 spec 5.6。"""
     rows = _entries_between(conn, _shift(day, -6), day)
@@ -209,7 +233,7 @@ def risk(conn: sqlite3.Connection, day: str) -> Signal | None:
     return None
 
 
-DETECTORS = (risk, repeat, dangling, upcoming, drift, silence)
+DETECTORS = (risk, repeat, dangling, upcoming, drift, silence, checkin)
 
 
 def detect(conn: sqlite3.Connection, day: str) -> list[Signal]:

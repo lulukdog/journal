@@ -196,7 +196,7 @@ function moodBar(mood) {
   return html + '</div>';
 }
 
-function cardHtml(card, day) {
+function cardHtml(card, day, mood) {
   if (!card) return '';
 
   const hasSummary = typeof card.mood === 'number';
@@ -208,6 +208,10 @@ function cardHtml(card, day) {
 
   const parts = [`${card.entry_count} 段`];
   if (card.image_count) parts.push(`${card.image_count} 张图`);
+  const companion = (card.companion || (mood && mood.line) || '').trim();
+  const companionHtml = companion
+    ? `<div class="companion">${escapeHtml(companion)}</div>`
+    : '';
 
   let body;
   if (hasSummary) {
@@ -217,13 +221,15 @@ function cardHtml(card, day) {
         ${moodBar(card.mood)}
       </div>`
       + (card.mood_label ? `<div class="headline">「${escapeHtml(card.mood_label)}」</div>` : '')
+      + companionHtml
       + (card.headline ? `<div class="keywords">${escapeHtml(card.headline)}</div>` : '')
       + ((card.keywords && card.keywords.length)
         ? `<div class="keywords">${card.keywords.map((k) => `<span>${escapeHtml(k)}</span>`).join('')}</div>`
         : '');
   } else {
-    // 白天打开时总结还没跑。说清楚，不要把「没总结」说成「你没说话」。
-    body = '<div class="keywords">今天的总结要等晚上跑，这里会填上。</div>';
+    // 白天打开时总结还没跑。能听出语气就先接一句，别干等晚上。
+    body = companionHtml
+      + '<div class="keywords">今天的总结要等晚上跑，这里会填上。</div>';
   }
 
   return `
@@ -287,7 +293,7 @@ function renderStream(data, scrollToBottom) {
   }
   items.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 
-  let html = cardHtml(data.card, data.day);
+  let html = cardHtml(data.card, data.day, data.mood);
 
   if (!items.length) {
     html += `<div class="empty">${

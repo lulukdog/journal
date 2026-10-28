@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import ask as ask_mod
-from . import auth, config, db, llm, memory, onboarding
+from . import auth, companion, config, db, llm, memory, onboarding
 from . import days as days_mod
 from . import entries as entries_mod
 
@@ -123,9 +123,8 @@ async def logout(response: Response):
 
 @app.get("/api/me")
 async def me(request: Request):
-    return {"ok": auth.verify_token(
-        request.cookies.get(auth.COOKIE_NAME), get_settings(request).app_token
-    )}
+    """网页看 cookie，Android 看 Authorization: Bearer。"""
+    return {"ok": auth.request_allowed(request, get_settings(request).app_token)}
 
 
 # ---------- 状态 ----------
@@ -142,15 +141,40 @@ async def state(request: Request, day: str | None = None):
     card = days_mod.as_dict(days_mod.get(conn, target))
     rows = entries_mod.list_by_day(conn, target)
     utterances = memory.utterances_for_day(conn, target)
+    entries = [_public_entry(r) for r in rows]
 
     return {
         "day": target,
         "today": today(request),
         "card": card,
-        "entries": [entries_mod.as_dict(r) for r in rows],
-        "utterances": [dict(r) for r in utterances],
+        "entries": entries,
+        "utterances": [_public_utterance(r) for r in utterances],
+        "mood": companion.for_api(card, [e.get("content") or "" for e in entries]),
         "onboarding": onboarding.status(conn),
         "configured": get_settings(request).is_configured,
+    }
+
+
+def _public_entry(row) -> dict:
+    """记一笔的稳定形状。多给 media_url，原有字段保留。"""
+    raw = entries_mod.as_dict(row)
+    path = raw.get("image_path") or None
+    raw["image_path"] = path
+    raw["media_url"] = f"/media/{path}" if path else None
+    return raw
+
+
+def _public_utterance(row) -> dict:
+    raw = dict(row)
+    return {
+        "id": raw["id"],
+        "ts": raw["ts"],
+        "day": raw["day"],
+        "trigger": raw["trigger"],
+        "content": raw["content"],
+        "reaction": raw.get("reaction"),
+        "delivered": raw.get("delivered", 0),
+        "seen_at": raw.get("seen_at"),
     }
 
 
@@ -201,7 +225,10 @@ async def ask(request: Request, body: AskBody):
         reply = await ask_mod.answer(settings, conn, body.text, today(request))
     except llm.LLMError as exc:
         raise HTTPException(502, str(exc)) from exc
-    return {"reply": reply}
+    return {
+        "reply": reply,
+        "mood": companion.for_api(None, [body.text or ""], source_if_live="ask"),
+    }
 
 
 # ---------- 引导访谈 ----------

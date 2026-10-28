@@ -94,12 +94,38 @@ def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(COOKIE_NAME, path="/")
 
 
+def bearer_token(header: str | None) -> str | None:
+    """解析 Authorization: Bearer <token>。其它方案不当作口令。"""
+    if not header:
+        return None
+    scheme, _, rest = header.strip().partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    token = rest.strip()
+    return token or None
+
+
+def credential_candidates(request: Request) -> list[str]:
+    """网页走 cookie，原生客户端走 Bearer。两者都对就算过。"""
+    found: list[str] = []
+    token = bearer_token(request.headers.get("authorization"))
+    if token:
+        found.append(token)
+    cookie = request.cookies.get(COOKIE_NAME)
+    if cookie:
+        found.append(cookie)
+    return found
+
+
+def request_allowed(request: Request, expected: str) -> bool:
+    return any(verify_token(candidate, expected) for candidate in credential_candidates(request))
+
+
 async def require_auth(request: Request) -> None:
-    """FastAPI 依赖。未登录返回 401。"""
+    """FastAPI 依赖。cookie 或 Authorization: Bearer 任一通过即可。"""
     settings = getattr(request.app.state, "settings", None)
     expected = settings.app_token if settings else ""
-    candidate = request.cookies.get(COOKIE_NAME)
-    if not verify_token(candidate, expected):
+    if not request_allowed(request, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录"
         )
@@ -108,8 +134,11 @@ async def require_auth(request: Request) -> None:
 __all__ = [
     "COOKIE_NAME",
     "SESSION_MAX_AGE",
+    "bearer_token",
     "clear_session_cookie",
+    "credential_candidates",
     "new_token",
+    "request_allowed",
     "require_auth",
     "set_session_cookie",
     "verify_token",
