@@ -2,55 +2,29 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#faf9f7">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="日记">
-<title>日记</title>
-<link rel="stylesheet" href="/static/style.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>日记网页已停用</title>
+<style>
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #faf9f7;
+    color: #1c1917;
+    font-family: system-ui, -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
+  }
+  main { max-width: 26rem; padding: 2rem 1.5rem; }
+  h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.75rem; }
+  p { line-height: 1.65; margin: 0.6rem 0; }
+</style>
 </head>
 <body>
-
-<div id="app" hidden>
-  <header id="datebar">
-    <button id="prev" aria-label="前一天">‹</button>
-    <!--
-      用一个透明的原生 date input 盖在日期文字上。
-      这样手机上点一下就会弹出系统自带的日期选择器，不用一天天挪。
-      （用 showPicker() 在部分浏览器/版本上不可靠，盖一层是最稳的。）
-    -->
-    <div id="datefield">
-      <span id="datelabel">—</span>
-      <button id="backtotoday" type="button" hidden>今天</button>
-      <input type="date" id="datepicker" aria-label="选择日期">
-    </div>
-    <button id="next" aria-label="后一天">›</button>
-  </header>
-
-  <main id="stream"></main>
-
-  <footer id="composer">
-    <div class="inputrow">
-      <textarea id="input" rows="1" placeholder="说点什么…"></textarea>
-      <button id="camera" title="拍一张">＋</button>
-    </div>
-    <div class="actionrow">
-      <button id="save" class="primary">记一笔</button>
-      <button id="askbtn" class="ghost">问它</button>
-    </div>
-  </footer>
-</div>
-
-<div id="overlay" class="overlay">
-  <div class="panel" id="panel">
-    <p class="loading">正在打开…</p>
-  </div>
-</div>
-
-<div id="toast" class="toast" hidden></div>
-<div id="lightbox" class="lightbox" hidden><img id="lightbox-img" alt=""></div>
-<input type="file" id="file" accept="image/*" hidden>
-
-<script src="/static/app.js"></script>
+<main>
+  <h1>网页版日记已停用</h1>
+  <p>请改用 Android 上的 Diary 应用记日记、看卡片、问它。</p>
+  <p>这个地址上的接口仍留给 App 使用（<code>/api/*</code>、<code>/media/*</code>）。浏览器里不再提供记日记的页面。</p>
+</main>
 </body>
 </html>

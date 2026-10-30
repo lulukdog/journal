@@ -8,14 +8,18 @@
 
 阿里云 ECS，`ssh journal-server`（地址见 `docs/superpowers/specs/2026-10-13-daily-journal-design.md` 第 3 节）。
 
-手机上用浏览器打开 `http://<服务器地址>:10002`，可以「添加到主屏幕」当 App 用。
+手机上用 Android 应用 [Diary](https://github.com/lulukdog/diary-android)。浏览器打开 `http://<服务器地址>:10002/` 只会看到一页停用说明，不能再当日记用，也不要「添加到主屏幕」。
+
+服务仍听在 `10002`。`/api/*` 和 `/media/*` 留给 Diary；网页端的 `index.html` + `app.js` 已经撤掉。
 
 ## 怎么用
 
-- **记一笔**（或直接按回车）——只记录，它默认不回应
+在 Diary 里：
+
+- **记一笔**——只记录，它默认不回应
 - **问它**——明确提问，它必须回答
-- **＋**——拍一张或选一张图
-- 顶上左右箭头切前一天 / 后一天
+- 可以附一张图
+- 可以切到前一天 / 后一天
 
 第一次打开会先走六道题的访谈。那是它的第一批素材——**答完之前它没有资格主动开口**，因为「落差」「悬置」这类判断都需要基线。任何一题都可以跳过。
 
@@ -73,7 +77,7 @@ app/
   signals.py     信号（含当天的 checkin）
   dayclose.py    每晚收口
   onboarding.py  引导访谈
-  static/        单页前端（原生 JS，无构建）
+  static/        网页停用说明（不再是可交互的日记前端）
 tests/           pytest（含陪伴与 Bearer）
 deploy/          systemd unit + 部署脚本
 ```
@@ -97,12 +101,9 @@ ssh journal-server 'python3 /opt/journal/deploy/token.py set 我的口令'
 
 ### 平时不用输
 
-登录过一次之后，这台设备就不会再问你了，两层保险：
+Diary 把口令存在应用里，之后每个请求带 `Authorization: Bearer`。网页已经停用，没有「添加到主屏幕」这一路了。
 
-1. **一年的 cookie**（HttpOnly）
-2. **浏览器本机存的备份** —— cookie 被清掉、或者你清了浏览器数据，它会拿本机存的那个口令静默补登一次，你根本不会察觉
-
-只有「服务器上的口令被改了」这种情况，才会重新弹登录页。
+`POST /api/login` 仍会换一年的 HttpOnly cookie，给还在用 cookie 的调用方。改了服务器上的口令之后，旧 cookie 和旧 Bearer 都会失效，需要重新登录。
 
 ### 但是如果口令很短
 
@@ -120,7 +121,7 @@ ssh journal-server 'python3 /opt/journal/deploy/token.py set 我的口令'
 
 ### Android 用同一口令
 
-配套应用是 [diary-android](https://github.com/lulukdog/diary-android)。仍是这一个 `JOURNAL_APP_TOKEN`，不要另开账号。网页继续 `POST /api/login` 换 cookie；原生客户端每个请求带：
+日常客户端是 [diary-android](https://github.com/lulukdog/diary-android)。仍是这一个 `JOURNAL_APP_TOKEN`，不要另开账号。网页已停用；App 每个请求带：
 
 ```http
 Authorization: Bearer <JOURNAL_APP_TOKEN>
