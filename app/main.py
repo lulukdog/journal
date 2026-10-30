@@ -1,7 +1,8 @@
 """FastAPI 应用。所有路由都在这。
 
-认证：除了 /api/login 和 / 之外，全部要求登录。
+认证：除了 /api/login 和 /（停用说明页）之外，全部要求登录。
 /media/<path> 也要登录 —— 图片比文字更敏感，这是最容易漏的一道门。
+浏览器里的日记单页已经撤下，/ 只返回一页中文说明；/api/* 与 /media/* 继续给 Android Diary 用。
 """
 
 from __future__ import annotations
@@ -44,10 +45,10 @@ app = FastAPI(title="journal", lifespan=lifespan)
 
 @app.middleware("http")
 async def never_cache_the_shell(request: Request, call_next):
-    """页面和静态文件不让浏览器缓存。
+    """停用说明页不让浏览器缓存。
 
-    这是个自己用的小应用，文件只有几 KB。而缓存带来的"改了代码但浏览器还在跑旧的"
-    这种坑，比省下的那点流量贵得多。接口响应本来就不缓存。
+    旧的日记单页曾经挂在 / 和 /static/ 上。缓存一留，手机会继续打开已经撤掉的页面。
+    接口响应本来就不缓存。
     """
     response = await call_next(request)
     path = request.url.path
@@ -261,13 +262,14 @@ async def media(request: Request, path: str):
 
 
 # ---------- 页面 ----------
+# 只剩一页停用说明。不要把可交互的日记前端再挂回来。
 
 
 @app.get("/")
 async def index():
     page = STATIC_DIR / "index.html"
     if not page.is_file():
-        return JSONResponse({"error": "前端还没装好。"}, status_code=500)
+        return JSONResponse({"error": "停用说明页还没装好。"}, status_code=500)
     return FileResponse(page)
 
 

@@ -131,8 +131,16 @@ def test_media_requires_auth(client):
     assert client.get("/media/2026/10/whatever.png").status_code == 401
 
 
-def test_index_is_public(client):
-    assert client.get("/").status_code in (200, 500)
+def test_index_is_retired_notice(client):
+    """浏览器不再提供日记单页，只留一页中文说明。"""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "网页版日记已停用" in response.text
+    assert "Diary" in response.text
+    assert "/static/app.js" not in response.text
+    assert "记一笔" not in response.text
+    assert client.get("/static/app.js").status_code == 404
+    assert client.get("/static/style.css").status_code == 404
 
 
 # ---------- 首次使用 ----------
